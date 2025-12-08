@@ -1,0 +1,22 @@
+[project]
+name = "mcpylib"
+version = "0.1.0"
+description = "Python library for controlling Minecraft servers remotely"
+readme = "README.md"
+authors = [
+    { name = "treeleaves30760", email = "treeleaves30760@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = []
+keywords = ["minecraft", "bukkit", "spigot", "api"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+[build-system]
+requires = ["uv_build>=0.9.8,<0.10.0"]
+build-backend = "uv_build"

@@ -1,0 +1,24 @@
+# MCPyLib Plugin Configuration
+
+# Server settings
+server:
+  # Port for the TCP server
+  port: 65535
+  # Bind address (0.0.0.0 for all interfaces)
+  host: '0.0.0.0'
+  # Maximum number of concurrent connections
+  max-connections: 10
+
+# Security settings
+security:
+  # Authentication token (generated on first run if empty)
+  token: ''
+  # Enable token authentication
+  require-token: true
+
+# Logging settings
+logging:
+  # Log all incoming connections
+  log-connections: true
+  # Log all commands
+  log-commands: true

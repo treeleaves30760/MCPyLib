@@ -1,0 +1,21 @@
+name: MCPyLib
+version: '0.1.0'
+main: com.mcpylib.plugin.MCPyLibPlugin
+api-version: '1.20'
+author: treeleaves30760
+description: Minecraft server plugin for MCPyLib Python library
+
+commands:
+  mcpylib:
+    description: MCPyLib plugin commands
+    usage: /mcpylib <reload|token|status>
+    permission: mcpylib.admin
+    aliases: [mcpy, mcp]
+
+permissions:
+  mcpylib.admin:
+    description: Full access to MCPyLib commands
+    default: op
+  mcpylib.use:
+    description: Allow using MCPyLib API
+    default: true
