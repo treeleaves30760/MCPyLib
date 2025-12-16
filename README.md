@@ -10,9 +10,11 @@ Control your Minecraft server remotely using Python! Build, break blocks, track 
 2. Place the JAR file in your Minecraft server's `plugins` folder
 3. Start or restart your server
 4. Run this command in-game or in server console:
-   ```
+
+   ```mc
    /mcpylib token
    ```
+
 5. Copy the displayed token
 
 ### 2. Install Python Package
@@ -52,28 +54,33 @@ print(f"Position: {position}")
 ## Main Features
 
 ### Block Manipulation
+
 - **setblock(x, y, z, block_name)** - Place a block at coordinates
 - **getblock(x, y, z)** - Get block type at coordinates
 - **fill(x1, y1, z1, x2, y2, z2, block_name)** - Fill a region with blocks
 - **clone(x1, y1, z1, x2, y2, z2, dest_x, dest_y, dest_z)** - Clone a region of blocks
 
 ### Player Control
+
 - **getPos(player_name)** - Get player coordinates
 - **teleport(player_name, x, y, z, yaw, pitch)** - Teleport player to coordinates
 - **gamemode(player_name, mode)** - Change player game mode (survival/creative/adventure/spectator)
 - **give(player_name, item, amount)** - Give items to player
 
 ### World Control
+
 - **time(action, value)** - Control world time (set/add/query)
 - **weather(condition, duration)** - Control weather (clear/rain/thunder)
 
 ### Entity Control
+
 - **summon(entity_type, x, y, z)** - Summon an entity at coordinates
 - **kill(selector)** - Remove entities from the world
 
 ## Usage Examples
 
 ### Build a Glass Cube
+
 ```python
 from mcpylib import MCPyLib
 
@@ -89,6 +96,7 @@ for x in range(10):
 ```
 
 ### Track Player Position
+
 ```python
 import time
 from mcpylib import MCPyLib
@@ -105,6 +113,7 @@ while True:
 ```
 
 ### Quick Build a Floor
+
 ```python
 from mcpylib import MCPyLib
 
@@ -124,16 +133,19 @@ print(f"Placed {count} blocks")
 ## Troubleshooting
 
 ### Cannot Connect to Server
+
 - Check that server plugin is loaded (run `/plugins`)
 - Verify port number is correct (default: 65535)
 - Check firewall settings
 
 ### Authentication Failed
+
 - Get correct token with `/mcpylib token`
 - Ensure token is copied completely without extra spaces
 - Check for no extra whitespace
 
 ### Player Not Found
+
 - Verify player is online
 - Player names are case-sensitive
 - Check spelling is correct
