@@ -51,10 +51,25 @@ print(f"Position: {position}")
 
 ## Main Features
 
+### Block Manipulation
 - **setblock(x, y, z, block_name)** - Place a block at coordinates
 - **getblock(x, y, z)** - Get block type at coordinates
-- **fill(x1, y1, z1, x2, y2, z2, block_name)** - Fill a region
+- **fill(x1, y1, z1, x2, y2, z2, block_name)** - Fill a region with blocks
+- **clone(x1, y1, z1, x2, y2, z2, dest_x, dest_y, dest_z)** - Clone a region of blocks
+
+### Player Control
 - **getPos(player_name)** - Get player coordinates
+- **teleport(player_name, x, y, z, yaw, pitch)** - Teleport player to coordinates
+- **gamemode(player_name, mode)** - Change player game mode (survival/creative/adventure/spectator)
+- **give(player_name, item, amount)** - Give items to player
+
+### World Control
+- **time(action, value)** - Control world time (set/add/query)
+- **weather(condition, duration)** - Control weather (clear/rain/thunder)
+
+### Entity Control
+- **summon(entity_type, x, y, z)** - Summon an entity at coordinates
+- **kill(selector)** - Remove entities from the world
 
 ## Usage Examples
 

@@ -251,3 +251,259 @@ class MCPyLib:
             "username": username
         }
         return self._send_command("getPos", params)
+
+    def teleport(self, username: str, x: float, y: float, z: float,
+                 yaw: float = None, pitch: float = None) -> bool:
+        """Teleport player to coordinates
+
+        Args:
+            username: Player username
+            x: X coordinate
+            y: Y coordinate
+            z: Z coordinate
+            yaw: Optional rotation yaw angle
+            pitch: Optional rotation pitch angle
+
+        Returns:
+            True if successful
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If player not found or teleport fails
+
+        Example:
+            >>> mc.teleport("Steve", 100, 64, 200)
+            True
+            >>> mc.teleport("Steve", 100, 64, 200, yaw=90.0, pitch=0.0)
+            True
+        """
+        params = {
+            "username": username,
+            "x": x,
+            "y": y,
+            "z": z
+        }
+
+        if yaw is not None and pitch is not None:
+            params["yaw"] = yaw
+            params["pitch"] = pitch
+
+        return self._send_command("teleport", params)
+
+    def gamemode(self, username: str, mode: str) -> bool:
+        """Change player gamemode
+
+        Args:
+            username: Player username
+            mode: Gamemode (survival, creative, adventure, spectator)
+
+        Returns:
+            True if successful
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If player not found or invalid gamemode
+
+        Example:
+            >>> mc.gamemode("Steve", "creative")
+            True
+            >>> mc.gamemode("Steve", "survival")
+            True
+        """
+        params = {
+            "username": username,
+            "mode": mode
+        }
+        return self._send_command("gamemode", params)
+
+    def time(self, action: str, value: int = None) -> int:
+        """Control world time
+
+        Args:
+            action: Action to perform (set, add, query)
+            value: Time value (0-24000) for set/add actions
+
+        Returns:
+            Current world time
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If invalid action or value out of range
+
+        Example:
+            >>> mc.time("set", 1000)
+            1000
+            >>> mc.time("add", 6000)
+            7000
+            >>> mc.time("query")
+            7000
+        """
+        params = {
+            "action": action
+        }
+
+        if value is not None:
+            params["value"] = value
+
+        return self._send_command("time", params)
+
+    def weather(self, condition: str, duration: int = None) -> bool:
+        """Control world weather
+
+        Args:
+            condition: Weather condition (clear, rain, thunder)
+            duration: Optional duration in seconds
+
+        Returns:
+            True if successful
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If invalid condition
+
+        Example:
+            >>> mc.weather("clear")
+            True
+            >>> mc.weather("rain", duration=600)
+            True
+            >>> mc.weather("thunder", duration=300)
+            True
+        """
+        params = {
+            "condition": condition
+        }
+
+        if duration is not None:
+            params["duration"] = duration
+
+        return self._send_command("weather", params)
+
+    def give(self, username: str, item: str, amount: int = 1) -> bool:
+        """Give items to player
+
+        Args:
+            username: Player username
+            item: Item type (e.g., "minecraft:diamond")
+            amount: Quantity (1-64, default: 1)
+
+        Returns:
+            True if successful
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If player not found, invalid item, or amount out of range
+
+        Example:
+            >>> mc.give("Steve", "minecraft:diamond", 10)
+            True
+            >>> mc.give("Steve", "diamond_sword")
+            True
+        """
+        params = {
+            "username": username,
+            "item": item,
+            "amount": amount
+        }
+        return self._send_command("give", params)
+
+    def summon(self, entity_type: str, x: float, y: float, z: float) -> str:
+        """Summon an entity at coordinates
+
+        Args:
+            entity_type: Entity type (e.g., "minecraft:zombie", "pig")
+            x: X coordinate
+            y: Y coordinate
+            z: Z coordinate
+
+        Returns:
+            Entity UUID as string
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If invalid entity type or coordinates
+
+        Example:
+            >>> uuid = mc.summon("minecraft:zombie", 100, 64, 200)
+            >>> uuid = mc.summon("pig", 150, 70, 250)
+        """
+        params = {
+            "entity_type": entity_type,
+            "x": x,
+            "y": y,
+            "z": z
+        }
+        return self._send_command("summon", params)
+
+    def kill(self, selector: str) -> int:
+        """Remove entities from the world
+
+        Args:
+            selector: Entity selector ("all", entity type, or "player:username")
+
+        Returns:
+            Number of entities killed
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If invalid selector or player not found
+
+        Example:
+            >>> mc.kill("all")
+            42
+            >>> mc.kill("zombie")
+            5
+            >>> mc.kill("player:Steve")
+            1
+        """
+        params = {
+            "selector": selector
+        }
+        return self._send_command("kill", params)
+
+    def clone(self, x1: int, y1: int, z1: int,
+              x2: int, y2: int, z2: int,
+              dest_x: int, dest_y: int, dest_z: int) -> int:
+        """Clone a region of blocks to a new location
+
+        Args:
+            x1: Source region start X coordinate
+            y1: Source region start Y coordinate
+            z1: Source region start Z coordinate
+            x2: Source region end X coordinate
+            y2: Source region end Y coordinate
+            z2: Source region end Z coordinate
+            dest_x: Destination X coordinate
+            dest_y: Destination Y coordinate
+            dest_z: Destination Z coordinate
+
+        Returns:
+            Number of blocks cloned
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If region too large (max 32768 blocks)
+
+        Example:
+            >>> mc.clone(0, 64, 0, 10, 74, 10, 20, 64, 0)
+            1100
+        """
+        params = {
+            "x1": x1,
+            "y1": y1,
+            "z1": z1,
+            "x2": x2,
+            "y2": y2,
+            "z2": z2,
+            "dest_x": dest_x,
+            "dest_y": dest_y,
+            "dest_z": dest_z
+        }
+        return self._send_command("clone", params)
