@@ -133,7 +133,15 @@ class MCPyLib:
         finally:
             sock.close()
 
-    def setblock(self, x: int, y: int, z: int, block_name: str) -> int:
+    def setblock(
+        self,
+        x: int,
+        y: int,
+        z: int,
+        block_name: str,
+        block_state: dict = None,
+        nbt: dict = None
+    ) -> int:
         """Set a block at the specified coordinates
 
         Args:
@@ -141,6 +149,8 @@ class MCPyLib:
             y: Y coordinate
             z: Z coordinate
             block_name: Block type (e.g., "minecraft:stone")
+            block_state: Optional block state properties (e.g., {"facing": "north", "half": "bottom"})
+            nbt: Optional NBT data for block entities (e.g., {"Items": [...]})
 
         Returns:
             1 if successful
@@ -153,6 +163,10 @@ class MCPyLib:
         Example:
             >>> mc.setblock(100, 64, 200, "minecraft:stone")
             1
+            >>> mc.setblock(100, 64, 200, "minecraft:oak_stairs", block_state={"facing": "north", "half": "bottom"})
+            1
+            >>> mc.setblock(100, 64, 200, "minecraft:chest", nbt={"CustomName": '{"text":"My Chest"}'})
+            1
         """
         params = {
             "x": x,
@@ -160,6 +174,13 @@ class MCPyLib:
             "z": z,
             "block": block_name
         }
+
+        if block_state is not None:
+            params["block_state"] = block_state
+
+        if nbt is not None:
+            params["nbt"] = nbt
+
         return self._send_command("setblock", params)
 
     def getblock(self, x: int, y: int, z: int) -> str:

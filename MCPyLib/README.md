@@ -67,14 +67,16 @@ MCPyLib(ip="127.0.0.1", port=65535, token="", timeout=10.0)
 ##### setblock()
 
 ```python
-setblock(x: int, y: int, z: int, block_name: str) -> int
+setblock(x: int, y: int, z: int, block_name: str, block_state: dict = None, nbt: dict = None) -> int
 ```
 
-Set a block at the specified coordinates.
+Set a block at the specified coordinates with optional block state and NBT data.
 
 **Parameters:**
 - `x`, `y`, `z` (int): Block coordinates
 - `block_name` (str): Block type (e.g., "minecraft:stone" or "stone")
+- `block_state` (dict, optional): Block state properties like direction, rotation, etc.
+- `nbt` (dict, optional): NBT data for block entities (signs, chests, etc.)
 
 **Returns:**
 - `1` if successful
@@ -82,13 +84,48 @@ Set a block at the specified coordinates.
 **Raises:**
 - `ConnectionError`: Failed to connect to server
 - `AuthenticationError`: Invalid token
-- `CommandError`: Invalid coordinates or block type
+- `CommandError`: Invalid coordinates, block type, or state properties
 
 **Example:**
 ```python
+# Basic block placement
 mc.setblock(100, 64, 200, "minecraft:diamond_block")
 mc.setblock(101, 64, 200, "gold_block")  # "minecraft:" prefix is optional
+
+# Place a stair facing north
+mc.setblock(100, 64, 201, "oak_stairs", block_state={"facing": "north", "half": "bottom"})
+
+# Place a fence gate facing east
+mc.setblock(100, 64, 202, "oak_fence_gate", block_state={"facing": "east", "open": "false"})
+
+# Place a log with horizontal axis
+mc.setblock(100, 64, 203, "oak_log", block_state={"axis": "x"})
+
+# Place a sign with text
+mc.setblock(100, 64, 204, "oak_sign",
+    block_state={"rotation": "0"},
+    nbt={"Text1": "Hello", "Text2": "World", "Text3": "", "Text4": ""}
+)
+
+# Place a chest with custom name
+mc.setblock(100, 64, 205, "chest",
+    block_state={"facing": "north"},
+    nbt={"CustomName": '{"text":"My Chest"}'}
+)
+
+# Place a waterlogged fence
+mc.setblock(100, 64, 206, "oak_fence", block_state={"waterlogged": "true"})
 ```
+
+**Common Block State Properties:**
+- `facing`: Direction the block faces ("north", "south", "east", "west", "up", "down")
+- `rotation`: Rotation for signs and banners ("0" to "15")
+- `axis`: Axis for logs and pillars ("x", "y", "z")
+- `half`: Upper or lower half ("top", "bottom")
+- `shape`: Stair shape ("straight", "inner_left", "inner_right", "outer_left", "outer_right")
+- `open`: Whether doors/gates are open ("true", "false")
+- `powered`: Whether redstone components are powered ("true", "false")
+- `waterlogged`: Whether block contains water ("true", "false")
 
 ##### getblock()
 

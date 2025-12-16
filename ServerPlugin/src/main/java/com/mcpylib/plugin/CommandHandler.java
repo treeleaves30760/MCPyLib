@@ -1,5 +1,6 @@
 package com.mcpylib.plugin;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
@@ -7,11 +8,18 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockState;
 import org.bukkit.block.data.BlockData;
+import org.bukkit.block.data.Directional;
+import org.bukkit.block.data.Orientable;
+import org.bukkit.block.data.Rotatable;
+import org.bukkit.block.data.type.Stairs;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+
+import java.util.Map;
 
 public class CommandHandler {
 
@@ -74,10 +82,168 @@ public class CommandHandler {
         try {
             Block block = world.getBlockAt(x, y, z);
             block.setType(material);
+
+            // Apply block state if provided
+            if (params.has("block_state")) {
+                JsonObject blockState = params.getAsJsonObject("block_state");
+                BlockData blockData = block.getBlockData();
+
+                // Apply each state property
+                for (Map.Entry<String, JsonElement> entry : blockState.entrySet()) {
+                    String property = entry.getKey();
+                    String value = entry.getValue().getAsString();
+
+                    try {
+                        applyBlockState(blockData, property, value);
+                    } catch (Exception e) {
+                        return CommandResult.error("Failed to set block state '" + property + "': " + e.getMessage());
+                    }
+                }
+
+                // Update block data
+                block.setBlockData(blockData);
+            }
+
+            // Apply NBT data if provided
+            if (params.has("nbt")) {
+                JsonObject nbtData = params.getAsJsonObject("nbt");
+                BlockState blockState = block.getState();
+
+                try {
+                    applyNBTData(blockState, nbtData);
+                    blockState.update(true);
+                } catch (Exception e) {
+                    return CommandResult.error("Failed to set NBT data: " + e.getMessage());
+                }
+            }
+
             return CommandResult.success(1);
         } catch (Exception e) {
             return CommandResult.error("Failed to set block: " + e.getMessage());
         }
+    }
+
+    private static void applyBlockState(BlockData blockData, String property, String value) {
+        switch (property.toLowerCase()) {
+            case "facing":
+                if (blockData instanceof Directional) {
+                    Directional directional = (Directional) blockData;
+                    directional.setFacing(org.bukkit.block.BlockFace.valueOf(value.toUpperCase()));
+                }
+                break;
+
+            case "rotation":
+                if (blockData instanceof Rotatable) {
+                    Rotatable rotatable = (Rotatable) blockData;
+                    rotatable.setRotation(org.bukkit.block.BlockFace.valueOf(value.toUpperCase()));
+                }
+                break;
+
+            case "axis":
+                if (blockData instanceof Orientable) {
+                    Orientable orientable = (Orientable) blockData;
+                    orientable.setAxis(org.bukkit.Axis.valueOf(value.toUpperCase()));
+                }
+                break;
+
+            case "half":
+                if (blockData instanceof Stairs) {
+                    Stairs stairs = (Stairs) blockData;
+                    stairs.setHalf(Stairs.Half.valueOf(value.toUpperCase()));
+                } else if (blockData instanceof org.bukkit.block.data.Bisected) {
+                    org.bukkit.block.data.Bisected bisected = (org.bukkit.block.data.Bisected) blockData;
+                    bisected.setHalf(org.bukkit.block.data.Bisected.Half.valueOf(value.toUpperCase()));
+                }
+                break;
+
+            case "shape":
+                if (blockData instanceof Stairs) {
+                    Stairs stairs = (Stairs) blockData;
+                    stairs.setShape(Stairs.Shape.valueOf(value.toUpperCase()));
+                }
+                break;
+
+            case "waterlogged":
+                if (blockData instanceof org.bukkit.block.data.Waterlogged) {
+                    org.bukkit.block.data.Waterlogged waterlogged = (org.bukkit.block.data.Waterlogged) blockData;
+                    waterlogged.setWaterlogged(Boolean.parseBoolean(value));
+                }
+                break;
+
+            case "open":
+                if (blockData instanceof org.bukkit.block.data.Openable) {
+                    org.bukkit.block.data.Openable openable = (org.bukkit.block.data.Openable) blockData;
+                    openable.setOpen(Boolean.parseBoolean(value));
+                }
+                break;
+
+            case "powered":
+                if (blockData instanceof org.bukkit.block.data.Powerable) {
+                    org.bukkit.block.data.Powerable powerable = (org.bukkit.block.data.Powerable) blockData;
+                    powerable.setPowered(Boolean.parseBoolean(value));
+                }
+                break;
+
+            default:
+                // Try to use the generic BlockData merge method
+                String stateString = property + "=" + value;
+                try {
+                    BlockData newData = Bukkit.createBlockData(blockData.getMaterial(), stateString);
+                    blockData.merge(newData);
+                } catch (Exception e) {
+                    throw new IllegalArgumentException("Unsupported property: " + property);
+                }
+                break;
+        }
+    }
+
+    @SuppressWarnings("deprecation")
+    private static void applyNBTData(BlockState blockState, JsonObject nbtData) {
+        // Note: Bukkit doesn't provide direct NBT access in the same way as vanilla Minecraft
+        // This is a simplified implementation that handles common cases using legacy Bukkit API
+
+        // Handle CustomName for containers and other block entities
+        if (nbtData.has("CustomName")) {
+            String customName = nbtData.get("CustomName").getAsString();
+
+            // Use legacy API for compatibility
+            if (blockState instanceof org.bukkit.block.Container) {
+                try {
+                    ((org.bukkit.block.Container) blockState).setCustomName(customName);
+                } catch (Exception e) {
+                    // Fallback: CustomName might not be supported in all versions
+                }
+            }
+        }
+
+        // Handle specific block entity types
+        if (blockState instanceof org.bukkit.block.Sign) {
+            org.bukkit.block.Sign sign = (org.bukkit.block.Sign) blockState;
+
+            // Use legacy setLine methods for compatibility
+            if (nbtData.has("Text1")) {
+                sign.setLine(0, nbtData.get("Text1").getAsString());
+            }
+            if (nbtData.has("Text2")) {
+                sign.setLine(1, nbtData.get("Text2").getAsString());
+            }
+            if (nbtData.has("Text3")) {
+                sign.setLine(2, nbtData.get("Text3").getAsString());
+            }
+            if (nbtData.has("Text4")) {
+                sign.setLine(3, nbtData.get("Text4").getAsString());
+            }
+        }
+
+        // Handle chest/container contents (simplified)
+        if (blockState instanceof org.bukkit.block.Chest && nbtData.has("Items")) {
+            // This would require more complex NBT parsing
+            // Left as placeholder for future implementation
+        }
+
+        // For more complex NBT data (detailed items, complex structures), you would need to use
+        // NMS (net.minecraft.server) or additional libraries like NBT-API
+        // This is left as a basic implementation that can be extended based on specific needs
     }
 
     private static CommandResult handleGetBlock(JsonObject params) {
