@@ -1,174 +1,226 @@
-# MCPyLib - Control Minecraft with Python
+# MCPyLib
 
-Control your Minecraft server remotely using Python! Build, break blocks, track player positions - all with simple Python code.
+A Python library for remotely controlling Minecraft servers through a TCP-based API.
+
+## Overview
+
+MCPyLib enables programmatic control of Minecraft servers via Python. It consists of two components:
+
+- **Python Client Library** - Provides a clean API for server interaction
+- **Bukkit/Spigot Plugin** - Handles server-side command execution
 
 ## Quick Start
 
-### 1. Install Server Plugin
+### Server Setup
 
-1. Download or compile `MCPyLib-Plugin-0.1.0.jar`
-2. Place the JAR file in your Minecraft server's `plugins` folder
-3. Start or restart your server
-4. Run this command in-game or in server console:
+1. Place `MCPyLib-Plugin-0.1.0.jar` in your server's `plugins` folder
+2. Start or restart your Minecraft server
+3. Generate an authentication token:
 
-   ```mc
+   ```bash
    /mcpylib token
    ```
 
-5. Copy the displayed token
+4. Copy the displayed token for client authentication
 
-### 2. Install Python Package
+### Client Installation
 
 ```bash
 cd MCPyLib
 pip install -e .
 ```
 
-### 3. Start Using
+### Basic Usage
 
 ```python
 from mcpylib import MCPyLib
 
-# Connect to server
+# Initialize client
 mc = MCPyLib(
     ip="127.0.0.1",
     port=65535,
     token="YOUR_TOKEN"
 )
 
-# Place a diamond block
+# Place a block
 mc.setblock(100, 64, 200, "minecraft:diamond_block")
 
-# Get block type
-block = mc.getblock(100, 64, 200)
-print(f"Block: {block}")
+# Query block type
+block = mc.getblock(100, 64, 200)  # Returns: "minecraft:diamond_block"
 
-# Fill a region
+# Fill region
 mc.fill(100, 64, 200, 110, 70, 210, "minecraft:glass")
-
-# Get player position
-position = mc.getPos("PlayerName")
-print(f"Position: {position}")
 ```
 
-## Main Features
+## API Reference
 
-### Block Manipulation
+### Block Operations
 
-- **setblock(x, y, z, block_name)** - Place a block at coordinates
-- **getblock(x, y, z)** - Get block type at coordinates
-- **fill(x1, y1, z1, x2, y2, z2, block_name)** - Fill a region with blocks
-- **clone(x1, y1, z1, x2, y2, z2, dest_x, dest_y, dest_z)** - Clone a region of blocks
+**`setblock(x, y, z, block_name, block_state=None, nbt=None)`**
+
+- Place a block with optional state and NBT data
+- Supports block states (e.g., stairs orientation, fence gate status)
+- Supports NBT data (e.g., chest names, sign text)
+
+```python
+# Basic placement
+mc.setblock(100, 64, 200, "minecraft:stone")
+
+# With block state
+mc.setblock(100, 64, 200, "minecraft:oak_stairs",
+    block_state={"facing": "north", "half": "bottom"})
+
+# With NBT data
+mc.setblock(100, 64, 200, "minecraft:chest",
+    nbt={"CustomName": '{"text":"Storage"}'})
+```
+
+**`getblock(x, y, z)`**
+
+- Returns block type at specified coordinates
+
+**`fill(x1, y1, z1, x2, y2, z2, block_name)`**
+
+- Fills a cuboid region with specified block
+- Returns number of blocks affected
+
+**`clone(x1, y1, z1, x2, y2, z2, dest_x, dest_y, dest_z)`**
+
+- Clones a region to a new location
+- Maximum 32,768 blocks per operation
 
 ### Player Control
 
-- **getPos(player_name)** - Get player coordinates
-- **teleport(player_name, x, y, z, yaw, pitch)** - Teleport player to coordinates
-- **gamemode(player_name, mode)** - Change player game mode (survival/creative/adventure/spectator)
-- **give(player_name, item, amount)** - Give items to player
+**`getPos(username)`**
+
+- Returns player coordinates as `[x, y, z]`
+
+**`teleport(username, x, y, z, yaw=None, pitch=None)`**
+
+- Teleports player to coordinates with optional rotation
+
+**`gamemode(username, mode)`**
+
+- Changes player gamemode
+- Valid modes: `survival`, `creative`, `adventure`, `spectator`
+
+**`give(username, item, amount=1)`**
+
+- Gives items to player (1-64 per operation)
 
 ### World Control
 
-- **time(action, value)** - Control world time (set/add/query)
-- **weather(condition, duration)** - Control weather (clear/rain/thunder)
+**`time(action, value=None)`**
+
+- Controls world time
+- Actions: `set` (0-24000), `add`, `query`
+
+**`weather(condition, duration=None)`**
+
+- Sets weather condition
+- Conditions: `clear`, `rain`, `thunder`
+- Duration in seconds (optional)
 
 ### Entity Control
 
-- **summon(entity_type, x, y, z)** - Summon an entity at coordinates
-- **kill(selector)** - Remove entities from the world
+**`summon(entity_type, x, y, z)`**
 
-## Usage Examples
+- Summons entity at coordinates
+- Returns entity UUID
 
-### Build a Glass Cube
+**`kill(selector)`**
+
+- Removes entities matching selector
+- Selectors: `all`, entity type (e.g., `zombie`), `player:username`
+- Returns number of entities killed
+
+## Examples
+
+### Advanced Block Placement
 
 ```python
-from mcpylib import MCPyLib
+# Create a waterlogged fence
+mc.setblock(100, 64, 200, "minecraft:oak_fence",
+    block_state={"waterlogged": "true"})
 
-mc = MCPyLib(token="YOUR_TOKEN")
-
-# Build a 10x10x10 glass cube
-for x in range(10):
-    for y in range(10):
-        for z in range(10):
-            # Only place glass on edges
-            if x == 0 or x == 9 or y == 0 or y == 9 or z == 0 or z == 9:
-                mc.setblock(x, 64+y, z, "glass")
+# Place a sign with text
+mc.setblock(100, 64, 200, "minecraft:oak_sign",
+    block_state={"rotation": "0"},
+    nbt={
+        "Text1": "Welcome",
+        "Text2": "to MCPyLib",
+        "Text3": "",
+        "Text4": ""
+    })
 ```
 
-### Track Player Position
+### Build Automation
+
+```python
+# Create a stone platform
+blocks_placed = mc.fill(0, 63, 0, 20, 63, 20, "minecraft:stone")
+print(f"Platform complete: {blocks_placed} blocks")
+
+# Clone a structure
+mc.clone(0, 64, 0, 10, 74, 10, 50, 64, 50)
+```
+
+### Player Monitoring
 
 ```python
 import time
-from mcpylib import MCPyLib
-
-mc = MCPyLib(token="YOUR_TOKEN")
 
 while True:
     try:
         pos = mc.getPos("Steve")
-        print(f"Steve is at: {pos}")
+        print(f"Position: {pos}")
         time.sleep(1)
     except KeyboardInterrupt:
         break
 ```
 
-### Quick Build a Floor
-
-```python
-from mcpylib import MCPyLib
-
-mc = MCPyLib(token="YOUR_TOKEN")
-
-# Use fill to quickly build a 20x20 stone floor
-count = mc.fill(0, 63, 0, 20, 63, 20, "stone")
-print(f"Placed {count} blocks")
-```
+See [`example.py`](example.py) and [`example_advanced.py`](example_advanced.py) for complete examples.
 
 ## Requirements
 
-- **Python**: 3.11 or higher
-- **Minecraft Server**: Spigot/Paper 1.20.1 or higher
-- **Java**: 17 or higher (for running Minecraft server)
+| Component        | Requirement          |
+| ---------------- | -------------------- |
+| Python           | 3.11+                |
+| Minecraft Server | Spigot/Paper 1.20.1+ |
+| Java             | 17+                  |
+
+## Error Handling
+
+The library raises specific exceptions for different error conditions:
+
+- `ConnectionError` - Network connectivity issues
+- `AuthenticationError` - Invalid token
+- `CommandError` - Invalid command parameters or execution failure
+
+```python
+try:
+    mc.setblock(100, 64, 200, "invalid_block")
+except CommandError as e:
+    print(f"Command failed: {e}")
+```
 
 ## Troubleshooting
 
-### Cannot Connect to Server
-
-- Check that server plugin is loaded (run `/plugins`)
-- Verify port number is correct (default: 65535)
-- Check firewall settings
-
-### Authentication Failed
-
-- Get correct token with `/mcpylib token`
-- Ensure token is copied completely without extra spaces
-- Check for no extra whitespace
-
-### Player Not Found
-
-- Verify player is online
-- Player names are case-sensitive
-- Check spelling is correct
+| Issue                 | Solution                                                 |
+| --------------------- | -------------------------------------------------------- |
+| Connection refused    | Verify plugin is loaded (`/plugins`), check port 65535   |
+| Authentication failed | Regenerate token with `/mcpylib token`                   |
+| Player not found      | Ensure player is online, check username case             |
 
 ## Documentation
 
-- [Installation Guide](docs/installation.md) - Complete installation and setup steps
-- [API Reference](docs/api-reference.md) - All available functions and parameters
-- [Protocol](docs/protocol.md) - Technical implementation details
-- [Development Guide](docs/development.md) - How to build and develop this project
+- [Installation Guide](docs/installation.md)
+- [API Reference](docs/api-reference.md)
+- [Protocol Specification](docs/protocol.md)
+- [Development Guide](docs/development.md)
 
-## Example Scripts
+## Project Information
 
-See [example.py](example.py) for more example code.
-
-## License
-
-This project is provided for educational and development purposes.
-
-## Author
-
-Created by treeleaves30760
-
-## Version
-
-Current version: 0.1.0
+**Version:** 0.1.0
+**Author:** treeleaves30760
+**License:** Educational and development use
