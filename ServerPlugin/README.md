@@ -74,12 +74,43 @@ After installing the plugin, run this command in-game or in the console:
 
 Copy the token and use it in your Python scripts.
 
+## Using the API
+
+After installing the plugin, you can control your server using the Python client library:
+
+```bash
+# Install the Python client with uv (recommended)
+cd ../MCPyLib
+uv sync
+
+# Run your scripts
+uv run python your_script.py
+```
+
+See [MCPyLib README](../MCPyLib/README.md) for complete client documentation.
+
 ## Supported API Commands
 
-- `setblock` - Set a block at coordinates
+### Block Operations
+- `setblock` - Set a block at coordinates with optional state and NBT
 - `getblock` - Get block type at coordinates
-- `fill` - Fill a region with blocks
+- `fill` - Fill a region with the same block type
+- `bulkEdit` - High-performance bulk editing with mixed block types (like WorldEdit)
+- `clone` - Clone a region to a new location
+
+### Player Control
 - `getPos` - Get player position
+- `teleport` - Teleport player to coordinates
+- `gamemode` - Change player gamemode
+- `give` - Give items to player
+
+### World Management
+- `time` - Control world time
+- `weather` - Control weather conditions
+
+### Entity Control
+- `summon` - Summon entities
+- `kill` - Remove entities
 
 See [PROTOCOL.md](../PROTOCOL.md) for detailed API documentation.
 

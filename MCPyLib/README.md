@@ -4,23 +4,49 @@ Python client library for controlling Minecraft servers remotely.
 
 ## Installation
 
-### From source
+### Using uv (Recommended)
+
+[uv](https://github.com/astral-sh/uv) is a fast Python package manager that's 10-100x faster than pip.
 
 ```bash
+# Install uv if you haven't already
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# or on macOS: brew install uv
+
+# Clone and install
+git clone <repository-url>
+cd MCPyLib
+uv sync
+
+# Run scripts with uv
+uv run python your_script.py
+```
+
+### Using pip (Traditional method)
+
+```bash
+# Clone and install
 git clone <repository-url>
 cd MCPyLib
 pip install -e .
-```
 
-### Using pip (when published)
-
-```bash
+# Or when published to PyPI
 pip install mcpylib
 ```
 
+### Why use uv?
+
+- **Fast**: 10-100x faster than pip
+- **Reliable**: Automatic dependency locking (uv.lock)
+- **Simple**: One command to set up everything
+- **Isolated**: Automatic virtual environment management
+
 ## Quick Start
 
+### Create and run your first script
+
 ```python
+# quickstart.py
 from mcpylib import MCPyLib
 
 # Initialize client
@@ -44,6 +70,16 @@ print(f"Filled {count} blocks")
 # Get player position
 pos = mc.getPos("Steve")
 print(f"Player at: {pos}")  # Output: Player at: [100, 64, 200]
+```
+
+### Run the script
+
+```bash
+# With uv (recommended)
+uv run python quickstart.py
+
+# Or with pip
+python quickstart.py
 ```
 
 ## API Reference
@@ -431,6 +467,94 @@ creeper_count = mc.kill("creeper")
 # Kill a specific player
 mc.kill("player:Steve")
 ```
+
+##### edit()
+
+```python
+edit(x: int, y: int, z: int, blocks: List[List[List]]) -> int
+```
+
+High-performance bulk block editing (like WorldEdit). Place large structures with mixed block types in a single operation.
+
+**Parameters:**
+- `x`, `y`, `z` (int): Starting coordinates
+- `blocks` (List[List[List]]): 3D array of blocks [x][y][z], where each element can be:
+  - `str`: Block name (e.g., "stone", "minecraft:glass")
+  - `None`: Skip this position (leave unchanged)
+  - `dict`: Complex block with state and NBT:
+    ```python
+    {
+        "block": "minecraft:chest",
+        "block_state": {"facing": "north"},  # Optional
+        "nbt": {"CustomName": '{"text":"Storage"}'}  # Optional
+    }
+    ```
+
+**Returns:**
+- Number of blocks placed
+
+**Raises:**
+- `ConnectionError`: Failed to connect to server
+- `AuthenticationError`: Invalid token
+- `CommandError`: Invalid block data or coordinates
+
+**Example:**
+```python
+# Simple 2x2x2 cube
+blocks = [
+    [["stone", "glass"], ["stone", "glass"]],
+    [["stone", "glass"], ["stone", "glass"]]
+]
+mc.edit(100, 64, 200, blocks)
+
+# Mixed mode with complex blocks
+blocks = [
+    [[None, "stone"], ["glass", None]],
+    [[{
+        "block": "minecraft:chest",
+        "block_state": {"facing": "north"},
+        "nbt": {"CustomName": '{"text":"Loot"}'}
+    }, "stone"], ["diamond_block", "gold_block"]]
+]
+mc.edit(100, 64, 200, blocks)
+
+# Build a house
+blocks = []
+for x in range(10):
+    x_layer = []
+    for y in range(5):
+        y_layer = [None] * 10
+        x_layer.append(y_layer)
+    blocks.append(x_layer)
+
+# Floor
+for x in range(10):
+    for z in range(10):
+        blocks[x][0][z] = "stone"
+
+# Walls
+for y in range(1, 4):
+    for x in range(10):
+        blocks[x][y][0] = "cobblestone"
+        blocks[x][y][9] = "cobblestone"
+    for z in range(10):
+        blocks[0][y][z] = "cobblestone"
+        blocks[9][y][z] = "cobblestone"
+
+# Roof
+for x in range(10):
+    for z in range(10):
+        blocks[x][4][z] = "oak_planks"
+
+count = mc.edit(100, 64, 200, blocks)
+print(f"House built: {count} blocks")
+```
+
+**Performance Notes:**
+- Use `edit()` for structures with multiple different block types
+- Use `fill()` for large areas of the same block
+- Much faster than calling `setblock()` repeatedly
+- Supports thousands of blocks in a single operation
 
 ##### clone()
 

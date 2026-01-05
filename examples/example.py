@@ -6,13 +6,17 @@ a Minecraft server remotely.
 """
 
 from MCPyLib.src.mcpylib import MCPyLib
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Initialize the client
-# Replace 'YOUR_TOKEN_HERE' with your actual token from the server
 mc = MCPyLib(
-    ip="127.0.0.1",
+    ip=os.getenv("SERVER_IP"),
     port=65535,
-    token="YOUR_TOKEN_HERE"
+    token=os.getenv("SERVER_TOKEN")
 )
 
 try:
@@ -33,7 +37,7 @@ try:
 
     # Example 4: Get player position
     print("\nGetting player position...")
-    username = "YourMinecraftUsername"  # Replace with actual username
+    username = os.getenv("PLAYER_NAME", "Player")
     position = mc.getPos(username)
     print(f"Player {username} position: {position}")
 

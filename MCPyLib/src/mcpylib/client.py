@@ -528,3 +528,76 @@ class MCPyLib:
             "dest_z": dest_z
         }
         return self._send_command("clone", params)
+
+    def edit(self, x: int, y: int, z: int, blocks: List[List[List]]) -> int:
+        """Bulk edit a 3D region of blocks with high performance (like WorldEdit)
+
+        This method allows you to quickly place large numbers of different blocks
+        in a single operation, making it ideal for constructing large buildings
+        and structures. It's much faster than using setblock repeatedly.
+
+        Args:
+            x: Starting X coordinate
+            y: Starting Y coordinate
+            z: Starting Z coordinate
+            blocks: 3D array of blocks [x][y][z], where each element can be:
+                - str: Block name (e.g., "minecraft:stone")
+                - None: Skip this position (leave unchanged)
+                - dict: Complex block with state and NBT:
+                    {
+                        "block": "minecraft:chest",
+                        "block_state": {"facing": "north"},  # Optional
+                        "nbt": {"CustomName": '{"text":"Storage"}'}  # Optional
+                    }
+
+        Returns:
+            Number of blocks placed
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If invalid block data or coordinates
+
+        Examples:
+            >>> # Simple 2x2x2 cube of stone and glass
+            >>> blocks = [
+            ...     [["stone", "glass"], ["stone", "glass"]],
+            ...     [["stone", "glass"], ["stone", "glass"]]
+            ... ]
+            >>> mc.edit(100, 64, 200, blocks)
+            8
+
+            >>> # Mixed mode with simple and complex blocks
+            >>> blocks = [
+            ...     [[None, "stone"], ["glass", None]],
+            ...     [[{
+            ...         "block": "minecraft:chest",
+            ...         "block_state": {"facing": "north"},
+            ...         "nbt": {"CustomName": '{"text":"Loot"}'}
+            ...     }, "stone"], ["diamond_block", "gold_block"]]
+            ... ]
+            >>> mc.edit(100, 64, 200, blocks)
+            6
+
+            >>> # Build a 10x5x10 house with different materials
+            >>> import numpy as np
+            >>> blocks = np.full((10, 5, 10), None, dtype=object)
+            >>> # Floor
+            >>> blocks[:, 0, :] = "stone"
+            >>> # Walls
+            >>> blocks[0, :, :] = "cobblestone"
+            >>> blocks[9, :, :] = "cobblestone"
+            >>> blocks[:, :, 0] = "cobblestone"
+            >>> blocks[:, :, 9] = "cobblestone"
+            >>> # Roof
+            >>> blocks[:, 4, :] = "oak_planks"
+            >>> mc.edit(100, 64, 200, blocks.tolist())
+            250
+        """
+        params = {
+            "x": x,
+            "y": y,
+            "z": z,
+            "blocks": blocks
+        }
+        return self._send_command("bulkEdit", params)

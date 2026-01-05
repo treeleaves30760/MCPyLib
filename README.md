@@ -7,7 +7,15 @@ A Python library for remotely controlling Minecraft servers through a TCP-based 
 MCPyLib enables programmatic control of Minecraft servers via Python. It consists of two components:
 
 - **Python Client Library** - Provides a clean API for server interaction
-- **Bukkit/Spigot Plugin** - Handles server-side command execution
+- **Bukkit/Spigot Plugin** - Handles server-side command execution with high-performance bulk operations
+
+### Key Features
+
+- **High-Performance Bulk Editing** - Build large structures quickly with WorldEdit-like performance
+- **Block Placement** - Set individual blocks with state and NBT support
+- **Player Control** - Teleport, change gamemode, give items
+- **World Management** - Control time, weather, and entities
+- **Region Operations** - Fill, clone, and bulk edit regions
 
 ## Quick Start
 
@@ -24,6 +32,20 @@ MCPyLib enables programmatic control of Minecraft servers via Python. It consist
 4. Copy the displayed token for client authentication
 
 ### Client Installation
+
+#### Using uv (Recommended)
+
+```bash
+# Install uv if you haven't already
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# or: brew install uv
+
+# Install the client library
+cd MCPyLib
+uv sync
+```
+
+#### Using pip
 
 ```bash
 cd MCPyLib
@@ -50,6 +72,13 @@ block = mc.getblock(100, 64, 200)  # Returns: "minecraft:diamond_block"
 
 # Fill region
 mc.fill(100, 64, 200, 110, 70, 210, "minecraft:glass")
+
+# Fast bulk edit (like WorldEdit)
+blocks = [
+    [["stone", "glass"], ["stone", "glass"]],
+    [["stone", "glass"], ["stone", "glass"]]
+]
+mc.edit(100, 64, 200, blocks)
 ```
 
 ## API Reference
@@ -83,6 +112,16 @@ mc.setblock(100, 64, 200, "minecraft:chest",
 
 - Fills a cuboid region with specified block
 - Returns number of blocks affected
+
+**`edit(x, y, z, blocks)`**
+
+- High-performance bulk block editing (like WorldEdit)
+- Place large structures with mixed block types in a single operation
+- Accepts 3D array where each element can be:
+  - String for simple blocks (e.g., "stone")
+  - None to skip positions
+  - Dict for complex blocks with state/NBT
+- Ideal for building large, complex structures quickly
 
 **`clone(x1, y1, z1, x2, y2, z2, dest_x, dest_y, dest_z)`**
 
@@ -165,6 +204,55 @@ print(f"Platform complete: {blocks_placed} blocks")
 mc.clone(0, 64, 0, 10, 74, 10, 50, 64, 50)
 ```
 
+### High-Performance Bulk Editing
+
+```python
+# Build a simple house (10x5x10) with different materials
+blocks = []
+
+# Initialize structure
+for x in range(10):
+    x_layer = []
+    for y in range(5):
+        y_layer = [None] * 10
+        x_layer.append(y_layer)
+    blocks.append(x_layer)
+
+# Floor
+for x in range(10):
+    for z in range(10):
+        blocks[x][0][z] = "stone"
+
+# Walls
+for y in range(1, 4):
+    for x in range(10):
+        blocks[x][y][0] = "cobblestone"
+        blocks[x][y][9] = "cobblestone"
+    for z in range(10):
+        blocks[0][y][z] = "cobblestone"
+        blocks[9][y][z] = "cobblestone"
+
+# Windows (glass)
+blocks[3][2][0] = "glass"
+blocks[7][2][0] = "glass"
+
+# Roof
+for x in range(10):
+    for z in range(10):
+        blocks[x][4][z] = "oak_planks"
+
+# Add a chest with custom name
+blocks[2][1][2] = {
+    "block": "minecraft:chest",
+    "block_state": {"facing": "north"},
+    "nbt": {"CustomName": '{"text":"Storage"}'}
+}
+
+# Place the entire structure in one operation
+count = mc.edit(100, 64, 200, blocks)
+print(f"House built: {count} blocks placed")
+```
+
 ### Player Monitoring
 
 ```python
@@ -179,7 +267,31 @@ while True:
         break
 ```
 
-See [`example.py`](example.py) and [`example_advanced.py`](example_advanced.py) for complete examples.
+See [`example.py`](example.py), [`example_advanced.py`](example_advanced.py), and [`example_bulk_edit.py`](example_bulk_edit.py) for complete examples.
+
+### Running Examples
+
+#### Using uv (Recommended)
+
+```bash
+# Run any example with uv
+uv run --directory MCPyLib python example.py
+uv run --directory MCPyLib python example_advanced.py
+uv run --directory MCPyLib python example_bulk_edit.py
+```
+
+#### Using pip
+
+```bash
+# Activate virtual environment first
+cd MCPyLib
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+
+# Run examples
+python ../example.py
+python ../example_advanced.py
+python ../example_bulk_edit.py
+```
 
 ## Requirements
 

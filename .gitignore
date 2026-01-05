@@ -60,3 +60,7 @@ whitelist.json
 usercache.json
 server.properties
 eula.txt
+
+# environment files
+.env
+.env.local

@@ -1,5 +1,6 @@
 package com.mcpylib.plugin;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import org.bukkit.Bukkit;
@@ -32,6 +33,8 @@ public class CommandHandler {
                     return handleGetBlock(params);
                 case "fill":
                     return handleFill(params);
+                case "bulkedit":
+                    return handleBulkEdit(params);
                 case "getpos":
                     return handleGetPos(params);
                 case "teleport":
@@ -317,6 +320,130 @@ public class CommandHandler {
             return CommandResult.success(count);
         } catch (Exception e) {
             return CommandResult.error("Failed to fill region: " + e.getMessage());
+        }
+    }
+
+    private static CommandResult handleBulkEdit(JsonObject params) {
+        // Get parameters
+        if (!params.has("x") || !params.has("y") || !params.has("z") || !params.has("blocks")) {
+            return CommandResult.error("Missing parameters: x, y, z, blocks");
+        }
+
+        int startX = params.get("x").getAsInt();
+        int startY = params.get("y").getAsInt();
+        int startZ = params.get("z").getAsInt();
+        JsonArray blocks = params.getAsJsonArray("blocks");
+
+        // Get world
+        World world = Bukkit.getWorlds().get(0);
+
+        try {
+            int count = 0;
+            int sizeX = blocks.size();
+
+            // Iterate through 3D array: blocks[x][y][z]
+            for (int dx = 0; dx < sizeX; dx++) {
+                JsonElement xElement = blocks.get(dx);
+                if (!xElement.isJsonArray()) {
+                    return CommandResult.error("Invalid blocks format: expected 3D array at index " + dx);
+                }
+                JsonArray yArray = xElement.getAsJsonArray();
+                int sizeY = yArray.size();
+
+                for (int dy = 0; dy < sizeY; dy++) {
+                    JsonElement yElement = yArray.get(dy);
+                    if (!yElement.isJsonArray()) {
+                        return CommandResult.error("Invalid blocks format: expected 3D array at [" + dx + "][" + dy + "]");
+                    }
+                    JsonArray zArray = yElement.getAsJsonArray();
+                    int sizeZ = zArray.size();
+
+                    for (int dz = 0; dz < sizeZ; dz++) {
+                        JsonElement blockElement = zArray.get(dz);
+
+                        // Skip null elements (air or skip position)
+                        if (blockElement.isJsonNull()) {
+                            continue;
+                        }
+
+                        // Calculate world coordinates
+                        int worldX = startX + dx;
+                        int worldY = startY + dy;
+                        int worldZ = startZ + dz;
+
+                        // Get block at position
+                        Block block = world.getBlockAt(worldX, worldY, worldZ);
+
+                        // Handle different element types (mixed mode)
+                        if (blockElement.isJsonPrimitive() && blockElement.getAsJsonPrimitive().isString()) {
+                            // Simple string: just block name
+                            String blockName = blockElement.getAsString();
+                            Material material = parseMaterial(blockName);
+                            if (material == null) {
+                                return CommandResult.error("Invalid block type at [" + dx + "][" + dy + "][" + dz + "]: " + blockName);
+                            }
+                            block.setType(material);
+                            count++;
+                        } else if (blockElement.isJsonObject()) {
+                            // Complex object: block, block_state, nbt
+                            JsonObject blockData = blockElement.getAsJsonObject();
+
+                            if (!blockData.has("block")) {
+                                return CommandResult.error("Missing 'block' field at [" + dx + "][" + dy + "][" + dz + "]");
+                            }
+
+                            String blockName = blockData.get("block").getAsString();
+                            Material material = parseMaterial(blockName);
+                            if (material == null) {
+                                return CommandResult.error("Invalid block type at [" + dx + "][" + dy + "][" + dz + "]: " + blockName);
+                            }
+
+                            // Set block type
+                            block.setType(material);
+
+                            // Apply block state if provided
+                            if (blockData.has("block_state")) {
+                                JsonObject blockState = blockData.getAsJsonObject("block_state");
+                                BlockData bukkitBlockData = block.getBlockData();
+
+                                for (Map.Entry<String, JsonElement> entry : blockState.entrySet()) {
+                                    String property = entry.getKey();
+                                    String value = entry.getValue().getAsString();
+
+                                    try {
+                                        applyBlockState(bukkitBlockData, property, value);
+                                    } catch (Exception e) {
+                                        return CommandResult.error("Failed to set block state at [" + dx + "][" + dy + "][" + dz + "]: " + e.getMessage());
+                                    }
+                                }
+
+                                block.setBlockData(bukkitBlockData);
+                            }
+
+                            // Apply NBT data if provided
+                            if (blockData.has("nbt")) {
+                                JsonObject nbtData = blockData.getAsJsonObject("nbt");
+                                BlockState blockState = block.getState();
+
+                                try {
+                                    applyNBTData(blockState, nbtData);
+                                    blockState.update(true);
+                                } catch (Exception e) {
+                                    return CommandResult.error("Failed to set NBT data at [" + dx + "][" + dy + "][" + dz + "]: " + e.getMessage());
+                                }
+                            }
+
+                            count++;
+                        } else {
+                            return CommandResult.error("Invalid block element at [" + dx + "][" + dy + "][" + dz + "]: must be string or object");
+                        }
+                    }
+                }
+            }
+
+            return CommandResult.success(count);
+        } catch (Exception e) {
+            return CommandResult.error("Failed to bulk edit: " + e.getMessage());
         }
     }
 

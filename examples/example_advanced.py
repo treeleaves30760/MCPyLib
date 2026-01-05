@@ -6,12 +6,17 @@ with the setblock command.
 """
 
 from MCPyLib.src.mcpylib import MCPyLib
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Initialize the client
 mc = MCPyLib(
-    ip="127.0.0.1",
+    ip=os.getenv("SERVER_IP"),
     port=65535,
-    token="YOUR_TOKEN_HERE"
+    token=os.getenv("SERVER_TOKEN")
 )
 
 try:

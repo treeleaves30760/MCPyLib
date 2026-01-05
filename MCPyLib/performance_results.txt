@@ -1,0 +1,31 @@
+MCPyLib Performance Test Results
+================================================================================
+
+Player: TLSChannel
+Position: (4003, 129, -3176)
+
+
+Small (10x10x10):
+  fill():  0.0525s  (19,060 blocks/sec)
+  edit():  0.0473s  (21,133 blocks/sec)
+  ratio:   0.902x
+
+Medium (20x20x10):
+  fill():  0.0548s  (72,945 blocks/sec)
+  edit():  0.0484s  (82,593 blocks/sec)
+  ratio:   0.883x
+
+Large (30x30x10):
+  fill():  0.0608s  (147,999 blocks/sec)
+  edit():  0.0530s  (169,737 blocks/sec)
+  ratio:   0.872x
+
+Very Large (50x50x10):
+  fill():  0.0886s  (282,222 blocks/sec)
+  edit():  0.1031s  (242,384 blocks/sec)
+  ratio:   1.164x
+
+Huge (100x100x5):
+  fill():  0.7618s  (65,630 blocks/sec)
+  edit():  0.4564s  (109,551 blocks/sec)
+  ratio:   0.599x
