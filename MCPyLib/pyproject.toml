@@ -3,6 +3,7 @@ name = "mcpylib"
 version = "1.0.0"
 description = "Python library for controlling Minecraft servers remotely"
 readme = "README.md"
+license = { text = "Non-Commercial License - See LICENSE file for details" }
 authors = [
     { name = "treeleaves30760", email = "treeleaves30760@gmail.com" }
 ]
