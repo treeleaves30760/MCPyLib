@@ -64,3 +64,4 @@ eula.txt
 # environment files
 .env
 .env.local
+pypi_publish.sh

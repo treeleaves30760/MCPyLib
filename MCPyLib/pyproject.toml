@@ -1,23 +1,34 @@
 [project]
 name = "mcpylib"
-version = "0.1.0"
-description = "Python library for controlling Minecraft servers remotely"
+version = "1.0.1"
+description = "Python library for controlling Minecraft servers with python code."
 readme = "README.md"
+license = { text = "Non-Commercial License - See LICENSE file for details" }
 authors = [
     { name = "treeleaves30760", email = "treeleaves30760@gmail.com" }
+]
+maintainers = [
+    {name = "MCPyLib Team"}
 ]
 requires-python = ">=3.11"
 dependencies = [
     "python-dotenv>=1.2.1",
 ]
-keywords = ["minecraft", "bukkit", "spigot", "api"]
+keywords = ["minecraft", "bukkit", "spigot", "api", "python", "library", "remote", "server"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
+
+[project.urls]
+"Homepage" = "https://github.com/treeleaves30760/MCPyLib"
+"Bug Reports" = "https://github.com/treeleaves30760/MCPyLib/issues"
+"Source" = "https://github.com/treeleaves30760/MCPyLib"
 
 [build-system]
 requires = ["uv_build>=0.9.8,<0.10.0"]

@@ -4,42 +4,56 @@ Python client library for controlling Minecraft servers remotely.
 
 ## Installation
 
-### Using uv (Recommended)
-
-[uv](https://github.com/astral-sh/uv) is a fast Python package manager that's 10-100x faster than pip.
+Install MCPyLib using pip:
 
 ```bash
-# Install uv if you haven't already
-curl -LsSf https://astral.sh/uv/install.sh | sh
-# or on macOS: brew install uv
-
-# Clone and install
-git clone <repository-url>
-cd MCPyLib
-uv sync
-
-# Run scripts with uv
-uv run python your_script.py
+pip install mcpylib
 ```
 
-### Using pip (Traditional method)
+Or using uv (faster alternative):
 
 ```bash
-# Clone and install
-git clone <repository-url>
-cd MCPyLib
-pip install -e .
+uv pip install mcpylib
+```
 
-# Or when published to PyPI
-pip install mcpylib
+<details>
+<summary><b>Want faster package management? Try uv!</b></summary>
+
+[uv](https://github.com/astral-sh/uv) is a blazing-fast Python package manager (10-100x faster than pip).
+
+### Install uv
+
+```bash
+# On macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# On macOS with Homebrew
+brew install uv
+
+# On Windows
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+### Install MCPyLib with uv
+
+```bash
+uv pip install mcpylib
+```
+
+### Run scripts with uv
+
+```bash
+uv run python your_script.py
 ```
 
 ### Why use uv?
 
 - **Fast**: 10-100x faster than pip
-- **Reliable**: Automatic dependency locking (uv.lock)
+- **Reliable**: Automatic dependency locking
 - **Simple**: One command to set up everything
 - **Isolated**: Automatic virtual environment management
+
+</details>
 
 ## Quick Start
 

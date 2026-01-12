@@ -33,24 +33,49 @@ MCPyLib enables programmatic control of Minecraft servers via Python. It consist
 
 ### Client Installation
 
-#### Using uv (Recommended)
+Install MCPyLib using pip:
 
 ```bash
-# Install uv if you haven't already
+pip install mcpylib
+```
+
+Or using uv (faster alternative):
+
+```bash
+uv pip install mcpylib
+```
+
+<details>
+<summary><b>Want faster package management? Try uv!</b></summary>
+
+[uv](https://github.com/astral-sh/uv) is a blazing-fast Python package manager (10-100x faster than pip).
+
+**Install uv:**
+
+```bash
+# On macOS/Linux
 curl -LsSf https://astral.sh/uv/install.sh | sh
-# or: brew install uv
 
-# Install the client library
-cd MCPyLib
-uv sync
+# On macOS with Homebrew
+brew install uv
+
+# On Windows
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-#### Using pip
+**Install MCPyLib with uv:**
 
 ```bash
-cd MCPyLib
-pip install -e .
+uv pip install mcpylib
 ```
+
+**Why use uv?**
+- Fast: 10-100x faster than pip
+- Reliable: Automatic dependency locking
+- Simple: One command to set up everything
+- Isolated: Automatic virtual environment management
+
+</details>
 
 ### Basic Usage
 
@@ -267,31 +292,10 @@ while True:
         break
 ```
 
-See [`example.py`](example.py), [`example_advanced.py`](example_advanced.py), and [`example_bulk_edit.py`](example_bulk_edit.py) for complete examples.
-
-### Running Examples
-
-#### Using uv (Recommended)
-
-```bash
-# Run any example with uv
-uv run --directory MCPyLib python example.py
-uv run --directory MCPyLib python example_advanced.py
-uv run --directory MCPyLib python example_bulk_edit.py
-```
-
-#### Using pip
-
-```bash
-# Activate virtual environment first
-cd MCPyLib
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Run examples
-python ../example.py
-python ../example_advanced.py
-python ../example_bulk_edit.py
-```
+See the [`examples`](examples/) directory for complete examples including:
+- [`example.py`](examples/example.py) - Basic operations
+- [`example_advanced.py`](examples/example_advanced.py) - Advanced block placement with states and NBT
+- [`example_bulk_edit.py`](examples/example_bulk_edit.py) - High-performance bulk editing
 
 ## Requirements
 
@@ -333,6 +337,42 @@ except CommandError as e:
 
 ## Project Information
 
-**Version:** 0.1.0
+**Version:** 1.0.0
 **Author:** treeleaves30760
-**License:** Educational and development use
+**PyPI:** https://pypi.org/project/mcpylib/
+**Repository:** https://github.com/treeleaves30760/MCPyLib
+
+## License
+
+This project is licensed under a **Non-Commercial License with Commercial Exception**.
+
+### Non-Commercial Use
+
+You are free to use, modify, and distribute this software for **non-commercial purposes**, including:
+- Personal projects and learning
+- Academic research (without tuition or fees)
+- Open-source projects
+- Non-profit organizations
+
+### Commercial Use
+
+**Commercial use requires a separate commercial license.**
+
+Commercial use includes:
+- Use in any business or for-profit organization
+- Use in **paid educational services, courses, or training programs**
+- Use in educational institutions where tuition or fees are charged
+- Integration into commercial products or services
+- Any use that generates revenue
+
+### Getting a Commercial License
+
+To obtain a commercial license, please contact:
+
+**Email:** treeleaves30760@gmail.com
+
+For complete license terms, see the [LICENSE](LICENSE) file.
+
+---
+
+**Note:** This software is provided "as is" without warranty of any kind. See the LICENSE file for full terms and conditions.
