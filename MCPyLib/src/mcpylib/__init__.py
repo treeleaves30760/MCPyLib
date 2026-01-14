@@ -3,7 +3,19 @@
 A Python library for controlling Minecraft servers remotely.
 """
 
-from .client import MCPyLib
+from .client import (
+    MCPyLib,
+    MCPyLibError,
+    ConnectionError,
+    AuthenticationError,
+    CommandError,
+)
 
-__version__ = "0.1.0"
-__all__ = ["MCPyLib"]
+__version__ = "1.0.2"
+__all__ = [
+    "MCPyLib",
+    "MCPyLibError",
+    "ConnectionError",
+    "AuthenticationError",
+    "CommandError",
+]

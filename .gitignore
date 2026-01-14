@@ -65,3 +65,6 @@ eula.txt
 .env
 .env.local
 pypi_publish.sh
+
+# Claude AI files
+.claude/

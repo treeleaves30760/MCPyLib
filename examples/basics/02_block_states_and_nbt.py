@@ -5,7 +5,7 @@ This script shows how to use the new block_state and nbt parameters
 with the setblock command.
 """
 
-from MCPyLib.src.mcpylib import MCPyLib
+from mcpylib import MCPyLib
 from dotenv import load_dotenv
 import os
 

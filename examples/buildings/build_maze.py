@@ -230,7 +230,7 @@ def main() -> None:
     token = os.getenv("SERVER_TOKEN", "your_token")
     username = os.getenv("PLAYER_NAME", "Steve")
 
-    size = int(os.getenv("MAZE_SIZE", "41"))
+    size = int(os.getenv("MAZE_SIZE", "81"))
     wall_height = int(os.getenv("MAZE_WALL_HEIGHT", "5"))
     corridor_width = int(os.getenv("MAZE_CORRIDOR_WIDTH", "2"))
     wall_width = int(os.getenv("MAZE_WALL_WIDTH", "2"))
