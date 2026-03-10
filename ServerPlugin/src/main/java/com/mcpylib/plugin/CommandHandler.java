@@ -8,6 +8,7 @@ import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.attribute.Attribute;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.data.BlockData;
@@ -17,10 +18,20 @@ import org.bukkit.block.data.Rotatable;
 import org.bukkit.block.data.type.Stairs;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.LivingEntity;
+import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Villager;
+import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.MerchantRecipe;
+import org.bukkit.util.Vector;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 public class CommandHandler {
 
@@ -53,6 +64,32 @@ public class CommandHandler {
                     return handleKill(params);
                 case "clone":
                     return handleClone(params);
+                case "getentitypos":
+                    return handleGetEntityPos(params);
+                case "getentitystatus":
+                    return handleGetEntityStatus(params);
+                case "teleportentity":
+                    return handleTeleportEntity(params);
+                case "setentityvelocity":
+                    return handleSetEntityVelocity(params);
+                case "setentityrotation":
+                    return handleSetEntityRotation(params);
+                case "setentityai":
+                    return handleSetEntityAI(params);
+                case "setentitytarget":
+                    return handleSetEntityTarget(params);
+                case "removeentity":
+                    return handleRemoveEntity(params);
+                case "getentityequipment":
+                    return handleGetEntityEquipment(params);
+                case "setentityequipment":
+                    return handleSetEntityEquipment(params);
+                case "getvillagerdata":
+                    return handleGetVillagerData(params);
+                case "setvillagerprofession":
+                    return handleSetVillagerProfession(params);
+                case "setvillagertrades":
+                    return handleSetVillagerTrades(params);
                 default:
                     return CommandResult.error("Unknown action: " + action);
             }
@@ -855,6 +892,682 @@ public class CommandHandler {
             return Material.valueOf(materialName);
         } catch (IllegalArgumentException e) {
             return null;
+        }
+    }
+
+    private static Entity findEntityByUUID(UUID uuid) {
+        for (World world : Bukkit.getWorlds()) {
+            for (Entity entity : world.getEntities()) {
+                if (entity.getUniqueId().equals(uuid)) {
+                    return entity;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static CommandResult handleGetEntityPos(JsonObject params) {
+        if (!params.has("uuid")) {
+            return CommandResult.error("Missing parameter: uuid");
+        }
+
+        String uuidStr = params.get("uuid").getAsString();
+        UUID uuid;
+        try {
+            uuid = UUID.fromString(uuidStr);
+        } catch (IllegalArgumentException e) {
+            return CommandResult.error("Invalid UUID format: " + uuidStr);
+        }
+
+        Entity entity = findEntityByUUID(uuid);
+        if (entity == null) {
+            return CommandResult.error("Entity not found: " + uuidStr);
+        }
+
+        Location loc = entity.getLocation();
+        Map<String, Double> position = new HashMap<>();
+        position.put("x", loc.getX());
+        position.put("y", loc.getY());
+        position.put("z", loc.getZ());
+        position.put("yaw", (double) loc.getYaw());
+        position.put("pitch", (double) loc.getPitch());
+
+        return CommandResult.success(position);
+    }
+
+    private static CommandResult handleGetEntityStatus(JsonObject params) {
+        if (!params.has("uuid")) {
+            return CommandResult.error("Missing parameter: uuid");
+        }
+
+        String uuidStr = params.get("uuid").getAsString();
+        UUID uuid;
+        try {
+            uuid = UUID.fromString(uuidStr);
+        } catch (IllegalArgumentException e) {
+            return CommandResult.error("Invalid UUID format: " + uuidStr);
+        }
+
+        Entity entity = findEntityByUUID(uuid);
+        if (entity == null) {
+            return CommandResult.error("Entity not found: " + uuidStr);
+        }
+
+        Map<String, Object> status = new HashMap<>();
+        status.put("uuid", entity.getUniqueId().toString());
+        status.put("type", "minecraft:" + entity.getType().name().toLowerCase());
+        status.put("custom_name", entity.getCustomName());
+        status.put("is_valid", entity.isValid());
+        status.put("is_dead", entity.isDead());
+        status.put("world", entity.getWorld().getName());
+
+        // Position
+        Location loc = entity.getLocation();
+        Map<String, Double> position = new HashMap<>();
+        position.put("x", loc.getX());
+        position.put("y", loc.getY());
+        position.put("z", loc.getZ());
+        status.put("position", position);
+
+        // Velocity
+        Vector vel = entity.getVelocity();
+        Map<String, Double> velocity = new HashMap<>();
+        velocity.put("x", vel.getX());
+        velocity.put("y", vel.getY());
+        velocity.put("z", vel.getZ());
+        status.put("velocity", velocity);
+
+        // LivingEntity specific properties
+        if (entity instanceof LivingEntity) {
+            LivingEntity living = (LivingEntity) entity;
+            status.put("health", living.getHealth());
+            try {
+                status.put("max_health", living.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue());
+            } catch (Exception e) {
+                status.put("max_health", null);
+            }
+            status.put("has_ai", living.hasAI());
+        } else {
+            status.put("health", null);
+            status.put("max_health", null);
+            status.put("has_ai", null);
+        }
+
+        return CommandResult.success(status);
+    }
+
+    private static CommandResult handleTeleportEntity(JsonObject params) {
+        if (!params.has("uuid") || !params.has("x") || !params.has("y") || !params.has("z")) {
+            return CommandResult.error("Missing parameters: uuid, x, y, z");
+        }
+
+        String uuidStr = params.get("uuid").getAsString();
+        UUID uuid;
+        try {
+            uuid = UUID.fromString(uuidStr);
+        } catch (IllegalArgumentException e) {
+            return CommandResult.error("Invalid UUID format: " + uuidStr);
+        }
+
+        Entity entity = findEntityByUUID(uuid);
+        if (entity == null) {
+            return CommandResult.error("Entity not found: " + uuidStr);
+        }
+
+        double x = params.get("x").getAsDouble();
+        double y = params.get("y").getAsDouble();
+        double z = params.get("z").getAsDouble();
+
+        Location location = new Location(entity.getWorld(), x, y, z);
+
+        // Handle optional yaw/pitch
+        if (params.has("yaw") && params.has("pitch")) {
+            float yaw = params.get("yaw").getAsFloat();
+            float pitch = params.get("pitch").getAsFloat();
+            location.setYaw(yaw);
+            location.setPitch(pitch);
+        } else {
+            // Preserve current rotation
+            Location currentLoc = entity.getLocation();
+            location.setYaw(currentLoc.getYaw());
+            location.setPitch(currentLoc.getPitch());
+        }
+
+        try {
+            boolean success = entity.teleport(location);
+            return CommandResult.success(success);
+        } catch (Exception e) {
+            return CommandResult.error("Failed to teleport entity: " + e.getMessage());
+        }
+    }
+
+    private static CommandResult handleSetEntityVelocity(JsonObject params) {
+        if (!params.has("uuid") || !params.has("vx") || !params.has("vy") || !params.has("vz")) {
+            return CommandResult.error("Missing parameters: uuid, vx, vy, vz");
+        }
+
+        String uuidStr = params.get("uuid").getAsString();
+        UUID uuid;
+        try {
+            uuid = UUID.fromString(uuidStr);
+        } catch (IllegalArgumentException e) {
+            return CommandResult.error("Invalid UUID format: " + uuidStr);
+        }
+
+        Entity entity = findEntityByUUID(uuid);
+        if (entity == null) {
+            return CommandResult.error("Entity not found: " + uuidStr);
+        }
+
+        double vx = params.get("vx").getAsDouble();
+        double vy = params.get("vy").getAsDouble();
+        double vz = params.get("vz").getAsDouble();
+
+        // Limit velocity to prevent server crashes (max ±10 blocks/tick)
+        double maxVelocity = 10.0;
+        vx = Math.max(-maxVelocity, Math.min(maxVelocity, vx));
+        vy = Math.max(-maxVelocity, Math.min(maxVelocity, vy));
+        vz = Math.max(-maxVelocity, Math.min(maxVelocity, vz));
+
+        try {
+            entity.setVelocity(new Vector(vx, vy, vz));
+            return CommandResult.success(true);
+        } catch (Exception e) {
+            return CommandResult.error("Failed to set entity velocity: " + e.getMessage());
+        }
+    }
+
+    private static CommandResult handleSetEntityRotation(JsonObject params) {
+        if (!params.has("uuid") || !params.has("yaw") || !params.has("pitch")) {
+            return CommandResult.error("Missing parameters: uuid, yaw, pitch");
+        }
+
+        String uuidStr = params.get("uuid").getAsString();
+        UUID uuid;
+        try {
+            uuid = UUID.fromString(uuidStr);
+        } catch (IllegalArgumentException e) {
+            return CommandResult.error("Invalid UUID format: " + uuidStr);
+        }
+
+        Entity entity = findEntityByUUID(uuid);
+        if (entity == null) {
+            return CommandResult.error("Entity not found: " + uuidStr);
+        }
+
+        float yaw = params.get("yaw").getAsFloat();
+        float pitch = params.get("pitch").getAsFloat();
+
+        try {
+            Location loc = entity.getLocation();
+            loc.setYaw(yaw);
+            loc.setPitch(pitch);
+            entity.teleport(loc);
+            return CommandResult.success(true);
+        } catch (Exception e) {
+            return CommandResult.error("Failed to set entity rotation: " + e.getMessage());
+        }
+    }
+
+    private static CommandResult handleSetEntityAI(JsonObject params) {
+        if (!params.has("uuid") || !params.has("enabled")) {
+            return CommandResult.error("Missing parameters: uuid, enabled");
+        }
+
+        String uuidStr = params.get("uuid").getAsString();
+        UUID uuid;
+        try {
+            uuid = UUID.fromString(uuidStr);
+        } catch (IllegalArgumentException e) {
+            return CommandResult.error("Invalid UUID format: " + uuidStr);
+        }
+
+        Entity entity = findEntityByUUID(uuid);
+        if (entity == null) {
+            return CommandResult.error("Entity not found: " + uuidStr);
+        }
+
+        if (!(entity instanceof LivingEntity)) {
+            return CommandResult.error("Entity is not a LivingEntity: " + uuidStr);
+        }
+
+        boolean enabled = params.get("enabled").getAsBoolean();
+
+        try {
+            ((LivingEntity) entity).setAI(enabled);
+            return CommandResult.success(true);
+        } catch (Exception e) {
+            return CommandResult.error("Failed to set entity AI: " + e.getMessage());
+        }
+    }
+
+    private static CommandResult handleSetEntityTarget(JsonObject params) {
+        if (!params.has("uuid")) {
+            return CommandResult.error("Missing parameter: uuid");
+        }
+
+        String uuidStr = params.get("uuid").getAsString();
+        UUID uuid;
+        try {
+            uuid = UUID.fromString(uuidStr);
+        } catch (IllegalArgumentException e) {
+            return CommandResult.error("Invalid UUID format: " + uuidStr);
+        }
+
+        Entity entity = findEntityByUUID(uuid);
+        if (entity == null) {
+            return CommandResult.error("Entity not found: " + uuidStr);
+        }
+
+        if (!(entity instanceof Mob)) {
+            return CommandResult.error("Entity is not a Mob (cannot have a target): " + uuidStr);
+        }
+
+        Mob mob = (Mob) entity;
+
+        // If target_uuid is provided, set the target; otherwise clear it
+        if (params.has("target_uuid") && !params.get("target_uuid").isJsonNull()) {
+            String targetUuidStr = params.get("target_uuid").getAsString();
+            UUID targetUuid;
+            try {
+                targetUuid = UUID.fromString(targetUuidStr);
+            } catch (IllegalArgumentException e) {
+                return CommandResult.error("Invalid target UUID format: " + targetUuidStr);
+            }
+
+            Entity targetEntity = findEntityByUUID(targetUuid);
+            if (targetEntity == null) {
+                return CommandResult.error("Target entity not found: " + targetUuidStr);
+            }
+
+            if (!(targetEntity instanceof LivingEntity)) {
+                return CommandResult.error("Target entity is not a LivingEntity: " + targetUuidStr);
+            }
+
+            try {
+                mob.setTarget((LivingEntity) targetEntity);
+                return CommandResult.success(true);
+            } catch (Exception e) {
+                return CommandResult.error("Failed to set entity target: " + e.getMessage());
+            }
+        } else {
+            // Clear target
+            try {
+                mob.setTarget(null);
+                return CommandResult.success(true);
+            } catch (Exception e) {
+                return CommandResult.error("Failed to clear entity target: " + e.getMessage());
+            }
+        }
+    }
+
+    private static CommandResult handleRemoveEntity(JsonObject params) {
+        if (!params.has("uuid")) {
+            return CommandResult.error("Missing parameter: uuid");
+        }
+
+        String uuidStr = params.get("uuid").getAsString();
+        UUID uuid;
+        try {
+            uuid = UUID.fromString(uuidStr);
+        } catch (IllegalArgumentException e) {
+            return CommandResult.error("Invalid UUID format: " + uuidStr);
+        }
+
+        Entity entity = findEntityByUUID(uuid);
+        if (entity == null) {
+            return CommandResult.error("Entity not found: " + uuidStr);
+        }
+
+        // Prevent removing players
+        if (entity instanceof Player) {
+            return CommandResult.error("Cannot remove players using removeEntity");
+        }
+
+        try {
+            entity.remove();
+            return CommandResult.success(true);
+        } catch (Exception e) {
+            return CommandResult.error("Failed to remove entity: " + e.getMessage());
+        }
+    }
+
+    private static CommandResult handleGetEntityEquipment(JsonObject params) {
+        if (!params.has("uuid")) {
+            return CommandResult.error("Missing parameter: uuid");
+        }
+
+        String uuidStr = params.get("uuid").getAsString();
+        UUID uuid;
+        try {
+            uuid = UUID.fromString(uuidStr);
+        } catch (IllegalArgumentException e) {
+            return CommandResult.error("Invalid UUID format: " + uuidStr);
+        }
+
+        Entity entity = findEntityByUUID(uuid);
+        if (entity == null) {
+            return CommandResult.error("Entity not found: " + uuidStr);
+        }
+
+        if (!(entity instanceof LivingEntity)) {
+            return CommandResult.error("Entity does not support equipment: " + uuidStr);
+        }
+
+        EntityEquipment equipment = ((LivingEntity) entity).getEquipment();
+        if (equipment == null) {
+            return CommandResult.error("Entity equipment is null");
+        }
+
+        Map<String, String> result = new HashMap<>();
+        result.put("helmet", itemStackToString(equipment.getHelmet()));
+        result.put("chestplate", itemStackToString(equipment.getChestplate()));
+        result.put("leggings", itemStackToString(equipment.getLeggings()));
+        result.put("boots", itemStackToString(equipment.getBoots()));
+        result.put("main_hand", itemStackToString(equipment.getItemInMainHand()));
+        result.put("off_hand", itemStackToString(equipment.getItemInOffHand()));
+
+        return CommandResult.success(result);
+    }
+
+    private static String itemStackToString(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) {
+            return null;
+        }
+        return "minecraft:" + item.getType().name().toLowerCase();
+    }
+
+    private static Map<String, Object> itemStackToMap(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) {
+            return null;
+        }
+        Map<String, Object> map = new HashMap<>();
+        map.put("item", "minecraft:" + item.getType().name().toLowerCase());
+        map.put("amount", item.getAmount());
+        return map;
+    }
+
+    private static ItemStack createItemStack(JsonObject itemData) {
+        String itemName = itemData.get("item").getAsString();
+        int amount = itemData.has("amount") ? itemData.get("amount").getAsInt() : 1;
+
+        Material material = parseMaterial(itemName);
+        if (material == null) {
+            throw new IllegalArgumentException("Invalid item type: " + itemName);
+        }
+
+        return new ItemStack(material, amount);
+    }
+
+    private static CommandResult handleSetEntityEquipment(JsonObject params) {
+        if (!params.has("uuid") || !params.has("equipment")) {
+            return CommandResult.error("Missing parameters: uuid, equipment");
+        }
+
+        String uuidStr = params.get("uuid").getAsString();
+        UUID uuid;
+        try {
+            uuid = UUID.fromString(uuidStr);
+        } catch (IllegalArgumentException e) {
+            return CommandResult.error("Invalid UUID format: " + uuidStr);
+        }
+
+        Entity entity = findEntityByUUID(uuid);
+        if (entity == null) {
+            return CommandResult.error("Entity not found: " + uuidStr);
+        }
+
+        if (!(entity instanceof LivingEntity)) {
+            return CommandResult.error("Entity does not support equipment: " + uuidStr);
+        }
+
+        EntityEquipment equipment = ((LivingEntity) entity).getEquipment();
+        if (equipment == null) {
+            return CommandResult.error("Entity equipment is null");
+        }
+
+        JsonObject equipmentData = params.getAsJsonObject("equipment");
+
+        try {
+            // Set each equipment slot if specified
+            if (equipmentData.has("helmet") && !equipmentData.get("helmet").isJsonNull()) {
+                Material mat = parseMaterial(equipmentData.get("helmet").getAsString());
+                if (mat == null) {
+                    return CommandResult.error("Invalid helmet material");
+                }
+                equipment.setHelmet(new ItemStack(mat));
+            }
+
+            if (equipmentData.has("chestplate") && !equipmentData.get("chestplate").isJsonNull()) {
+                Material mat = parseMaterial(equipmentData.get("chestplate").getAsString());
+                if (mat == null) {
+                    return CommandResult.error("Invalid chestplate material");
+                }
+                equipment.setChestplate(new ItemStack(mat));
+            }
+
+            if (equipmentData.has("leggings") && !equipmentData.get("leggings").isJsonNull()) {
+                Material mat = parseMaterial(equipmentData.get("leggings").getAsString());
+                if (mat == null) {
+                    return CommandResult.error("Invalid leggings material");
+                }
+                equipment.setLeggings(new ItemStack(mat));
+            }
+
+            if (equipmentData.has("boots") && !equipmentData.get("boots").isJsonNull()) {
+                Material mat = parseMaterial(equipmentData.get("boots").getAsString());
+                if (mat == null) {
+                    return CommandResult.error("Invalid boots material");
+                }
+                equipment.setBoots(new ItemStack(mat));
+            }
+
+            if (equipmentData.has("main_hand") && !equipmentData.get("main_hand").isJsonNull()) {
+                Material mat = parseMaterial(equipmentData.get("main_hand").getAsString());
+                if (mat == null) {
+                    return CommandResult.error("Invalid main_hand material");
+                }
+                equipment.setItemInMainHand(new ItemStack(mat));
+            }
+
+            if (equipmentData.has("off_hand") && !equipmentData.get("off_hand").isJsonNull()) {
+                Material mat = parseMaterial(equipmentData.get("off_hand").getAsString());
+                if (mat == null) {
+                    return CommandResult.error("Invalid off_hand material");
+                }
+                equipment.setItemInOffHand(new ItemStack(mat));
+            }
+
+            // Set drop chances if provided
+            if (params.has("drop_chances")) {
+                JsonObject dropChances = params.getAsJsonObject("drop_chances");
+
+                if (dropChances.has("helmet")) {
+                    equipment.setHelmetDropChance(dropChances.get("helmet").getAsFloat());
+                }
+                if (dropChances.has("chestplate")) {
+                    equipment.setChestplateDropChance(dropChances.get("chestplate").getAsFloat());
+                }
+                if (dropChances.has("leggings")) {
+                    equipment.setLeggingsDropChance(dropChances.get("leggings").getAsFloat());
+                }
+                if (dropChances.has("boots")) {
+                    equipment.setBootsDropChance(dropChances.get("boots").getAsFloat());
+                }
+                if (dropChances.has("main_hand")) {
+                    equipment.setItemInMainHandDropChance(dropChances.get("main_hand").getAsFloat());
+                }
+                if (dropChances.has("off_hand")) {
+                    equipment.setItemInOffHandDropChance(dropChances.get("off_hand").getAsFloat());
+                }
+            }
+
+            return CommandResult.success(true);
+        } catch (Exception e) {
+            return CommandResult.error("Failed to set entity equipment: " + e.getMessage());
+        }
+    }
+
+    private static CommandResult handleGetVillagerData(JsonObject params) {
+        if (!params.has("uuid")) {
+            return CommandResult.error("Missing parameter: uuid");
+        }
+
+        String uuidStr = params.get("uuid").getAsString();
+        UUID uuid;
+        try {
+            uuid = UUID.fromString(uuidStr);
+        } catch (IllegalArgumentException e) {
+            return CommandResult.error("Invalid UUID format: " + uuidStr);
+        }
+
+        Entity entity = findEntityByUUID(uuid);
+        if (entity == null) {
+            return CommandResult.error("Entity not found: " + uuidStr);
+        }
+
+        if (!(entity instanceof Villager)) {
+            return CommandResult.error("Entity is not a Villager: " + uuidStr);
+        }
+
+        Villager villager = (Villager) entity;
+        Map<String, Object> result = new HashMap<>();
+
+        result.put("profession", villager.getProfession().name());
+        result.put("level", villager.getVillagerLevel());
+
+        // Get trade list
+        List<Map<String, Object>> trades = new ArrayList<>();
+        for (MerchantRecipe recipe : villager.getRecipes()) {
+            Map<String, Object> trade = new HashMap<>();
+
+            List<ItemStack> ingredients = recipe.getIngredients();
+            if (ingredients.size() > 0) {
+                trade.put("buy1", itemStackToMap(ingredients.get(0)));
+            }
+            if (ingredients.size() > 1) {
+                trade.put("buy2", itemStackToMap(ingredients.get(1)));
+            } else {
+                trade.put("buy2", null);
+            }
+            trade.put("sell", itemStackToMap(recipe.getResult()));
+            trade.put("uses", recipe.getUses());
+            trade.put("max_uses", recipe.getMaxUses());
+
+            trades.add(trade);
+        }
+        result.put("trades", trades);
+
+        return CommandResult.success(result);
+    }
+
+    private static CommandResult handleSetVillagerProfession(JsonObject params) {
+        if (!params.has("uuid") || !params.has("profession")) {
+            return CommandResult.error("Missing parameters: uuid, profession");
+        }
+
+        String uuidStr = params.get("uuid").getAsString();
+        UUID uuid;
+        try {
+            uuid = UUID.fromString(uuidStr);
+        } catch (IllegalArgumentException e) {
+            return CommandResult.error("Invalid UUID format: " + uuidStr);
+        }
+
+        Entity entity = findEntityByUUID(uuid);
+        if (entity == null) {
+            return CommandResult.error("Entity not found: " + uuidStr);
+        }
+
+        if (!(entity instanceof Villager)) {
+            return CommandResult.error("Entity is not a Villager: " + uuidStr);
+        }
+
+        String professionStr = params.get("profession").getAsString();
+        Villager.Profession profession;
+        try {
+            profession = Villager.Profession.valueOf(professionStr.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return CommandResult.error("Invalid profession: " + professionStr +
+                " (valid: ARMORER, BUTCHER, CARTOGRAPHER, CLERIC, FARMER, FISHERMAN, FLETCHER, " +
+                "LEATHERWORKER, LIBRARIAN, MASON, NITWIT, NONE, SHEPHERD, TOOLSMITH, WEAPONSMITH)");
+        }
+
+        try {
+            ((Villager) entity).setProfession(profession);
+            return CommandResult.success(true);
+        } catch (Exception e) {
+            return CommandResult.error("Failed to set villager profession: " + e.getMessage());
+        }
+    }
+
+    private static CommandResult handleSetVillagerTrades(JsonObject params) {
+        if (!params.has("uuid") || !params.has("trades")) {
+            return CommandResult.error("Missing parameters: uuid, trades");
+        }
+
+        String uuidStr = params.get("uuid").getAsString();
+        UUID uuid;
+        try {
+            uuid = UUID.fromString(uuidStr);
+        } catch (IllegalArgumentException e) {
+            return CommandResult.error("Invalid UUID format: " + uuidStr);
+        }
+
+        Entity entity = findEntityByUUID(uuid);
+        if (entity == null) {
+            return CommandResult.error("Entity not found: " + uuidStr);
+        }
+
+        if (!(entity instanceof Villager)) {
+            return CommandResult.error("Entity is not a Villager: " + uuidStr);
+        }
+
+        Villager villager = (Villager) entity;
+        JsonArray tradesArray = params.getAsJsonArray("trades");
+
+        try {
+            List<MerchantRecipe> recipes = new ArrayList<>();
+
+            for (JsonElement tradeElement : tradesArray) {
+                JsonObject tradeData = tradeElement.getAsJsonObject();
+
+                // Parse sell item (result)
+                if (!tradeData.has("sell")) {
+                    return CommandResult.error("Trade missing 'sell' field");
+                }
+                JsonObject sellData = tradeData.getAsJsonObject("sell");
+                ItemStack result = createItemStack(sellData);
+
+                // Create MerchantRecipe
+                int maxUses = tradeData.has("max_uses") ?
+                    tradeData.get("max_uses").getAsInt() : 10;
+                boolean experienceReward = !tradeData.has("experience_reward") ||
+                    tradeData.get("experience_reward").getAsBoolean();
+
+                MerchantRecipe recipe = new MerchantRecipe(result, maxUses);
+                recipe.setExperienceReward(experienceReward);
+
+                // Add first ingredient (buy1)
+                if (!tradeData.has("buy1")) {
+                    return CommandResult.error("Trade missing 'buy1' field");
+                }
+                JsonObject buy1Data = tradeData.getAsJsonObject("buy1");
+                recipe.addIngredient(createItemStack(buy1Data));
+
+                // Add second ingredient if provided (buy2)
+                if (tradeData.has("buy2") && !tradeData.get("buy2").isJsonNull()) {
+                    JsonObject buy2Data = tradeData.getAsJsonObject("buy2");
+                    recipe.addIngredient(createItemStack(buy2Data));
+                }
+
+                recipes.add(recipe);
+            }
+
+            villager.setRecipes(recipes);
+            return CommandResult.success(true);
+        } catch (Exception e) {
+            return CommandResult.error("Failed to set villager trades: " + e.getMessage());
         }
     }
 }

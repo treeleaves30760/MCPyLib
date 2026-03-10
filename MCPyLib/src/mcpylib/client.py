@@ -488,6 +488,464 @@ class MCPyLib:
         }
         return self._send_command("kill", params)
 
+    def getEntityPos(self, entity_uuid: str) -> dict:
+        """Get the position of an entity by UUID
+
+        Args:
+            entity_uuid: Entity UUID string
+
+        Returns:
+            Position dictionary with keys: x, y, z, yaw, pitch
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If entity not found or invalid UUID
+
+        Example:
+            >>> uuid = mc.summon("zombie", 100, 64, 200)
+            >>> pos = mc.getEntityPos(uuid)
+            >>> print(f"Position: ({pos['x']}, {pos['y']}, {pos['z']})")
+        """
+        params = {
+            "uuid": entity_uuid
+        }
+        return self._send_command("getEntityPos", params)
+
+    def getEntityStatus(self, entity_uuid: str) -> dict:
+        """Get complete status information of an entity
+
+        Args:
+            entity_uuid: Entity UUID string
+
+        Returns:
+            Status dictionary containing:
+                - uuid: Entity UUID
+                - type: Entity type (e.g., "minecraft:zombie")
+                - custom_name: Custom name or None
+                - is_valid: Whether entity is valid
+                - is_dead: Whether entity is dead
+                - position: {x, y, z} coordinates
+                - velocity: {x, y, z} velocity vector
+                - world: World name
+                - health: Current health (LivingEntity only, None otherwise)
+                - max_health: Maximum health (LivingEntity only, None otherwise)
+                - has_ai: Whether AI is enabled (LivingEntity only, None otherwise)
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If entity not found or invalid UUID
+
+        Example:
+            >>> uuid = mc.summon("zombie", 100, 64, 200)
+            >>> status = mc.getEntityStatus(uuid)
+            >>> print(f"Health: {status['health']}/{status['max_health']}")
+            >>> print(f"AI enabled: {status['has_ai']}")
+        """
+        params = {
+            "uuid": entity_uuid
+        }
+        return self._send_command("getEntityStatus", params)
+
+    def teleportEntity(
+        self,
+        entity_uuid: str,
+        x: float,
+        y: float,
+        z: float,
+        yaw: float = None,
+        pitch: float = None
+    ) -> bool:
+        """Teleport an entity to specified coordinates
+
+        Args:
+            entity_uuid: Entity UUID string
+            x: Target X coordinate
+            y: Target Y coordinate
+            z: Target Z coordinate
+            yaw: Optional rotation yaw angle
+            pitch: Optional rotation pitch angle
+
+        Returns:
+            True if successful
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If entity not found or teleport fails
+
+        Example:
+            >>> uuid = mc.summon("pig", 100, 64, 200)
+            >>> mc.teleportEntity(uuid, 110, 70, 210)
+            True
+            >>> mc.teleportEntity(uuid, 120, 64, 220, yaw=90.0, pitch=0.0)
+            True
+        """
+        params = {
+            "uuid": entity_uuid,
+            "x": x,
+            "y": y,
+            "z": z
+        }
+
+        if yaw is not None and pitch is not None:
+            params["yaw"] = yaw
+            params["pitch"] = pitch
+
+        return self._send_command("teleportEntity", params)
+
+    def setEntityVelocity(
+        self,
+        entity_uuid: str,
+        vx: float,
+        vy: float,
+        vz: float
+    ) -> bool:
+        """Set the velocity of an entity
+
+        Args:
+            entity_uuid: Entity UUID string
+            vx: X velocity component (blocks/tick, clamped to ±10)
+            vy: Y velocity component (blocks/tick, clamped to ±10)
+            vz: Z velocity component (blocks/tick, clamped to ±10)
+
+        Returns:
+            True if successful
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If entity not found
+
+        Example:
+            >>> uuid = mc.summon("pig", 100, 64, 200)
+            >>> # Make the pig jump
+            >>> mc.setEntityVelocity(uuid, 0, 1.0, 0)
+            True
+            >>> # Push the pig forward
+            >>> mc.setEntityVelocity(uuid, 0.5, 0.2, 0.5)
+            True
+        """
+        params = {
+            "uuid": entity_uuid,
+            "vx": vx,
+            "vy": vy,
+            "vz": vz
+        }
+        return self._send_command("setEntityVelocity", params)
+
+    def setEntityRotation(
+        self,
+        entity_uuid: str,
+        yaw: float,
+        pitch: float
+    ) -> bool:
+        """Set the rotation (facing direction) of an entity
+
+        Args:
+            entity_uuid: Entity UUID string
+            yaw: Horizontal rotation angle (0=south, 90=west, 180=north, 270=east)
+            pitch: Vertical rotation angle (-90=up, 0=horizontal, 90=down)
+
+        Returns:
+            True if successful
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If entity not found
+
+        Example:
+            >>> uuid = mc.summon("zombie", 100, 64, 200)
+            >>> # Face north
+            >>> mc.setEntityRotation(uuid, 180.0, 0.0)
+            True
+            >>> # Look up
+            >>> mc.setEntityRotation(uuid, 180.0, -45.0)
+            True
+        """
+        params = {
+            "uuid": entity_uuid,
+            "yaw": yaw,
+            "pitch": pitch
+        }
+        return self._send_command("setEntityRotation", params)
+
+    def setEntityAI(self, entity_uuid: str, enabled: bool) -> bool:
+        """Enable or disable AI for a living entity
+
+        When AI is disabled, the entity will not move, attack, or perform
+        any autonomous behavior (like a statue).
+
+        Args:
+            entity_uuid: Entity UUID string
+            enabled: True to enable AI, False to disable
+
+        Returns:
+            True if successful
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If entity not found or not a LivingEntity
+
+        Example:
+            >>> uuid = mc.summon("zombie", 100, 64, 200)
+            >>> # Freeze the zombie (disable AI)
+            >>> mc.setEntityAI(uuid, False)
+            True
+            >>> # Re-enable AI
+            >>> mc.setEntityAI(uuid, True)
+            True
+        """
+        params = {
+            "uuid": entity_uuid,
+            "enabled": enabled
+        }
+        return self._send_command("setEntityAI", params)
+
+    def setEntityTarget(
+        self,
+        entity_uuid: str,
+        target_uuid: str = None
+    ) -> bool:
+        """Set or clear the attack target of a mob entity
+
+        Args:
+            entity_uuid: UUID of the mob entity
+            target_uuid: UUID of the target entity (must be a LivingEntity),
+                        or None to clear the target
+
+        Returns:
+            True if successful
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If entity not found, not a Mob, or target is invalid
+
+        Example:
+            >>> zombie = mc.summon("zombie", 100, 64, 200)
+            >>> villager = mc.summon("villager", 105, 64, 200)
+            >>> # Make zombie target the villager
+            >>> mc.setEntityTarget(zombie, villager)
+            True
+            >>> # Clear the target
+            >>> mc.setEntityTarget(zombie, None)
+            True
+        """
+        params = {
+            "uuid": entity_uuid
+        }
+        if target_uuid is not None:
+            params["target_uuid"] = target_uuid
+        return self._send_command("setEntityTarget", params)
+
+    def removeEntity(self, entity_uuid: str) -> bool:
+        """Remove an entity from the world
+
+        Args:
+            entity_uuid: Entity UUID string
+
+        Returns:
+            True if successful
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If entity not found or is a player
+
+        Example:
+            >>> uuid = mc.summon("pig", 100, 64, 200)
+            >>> mc.removeEntity(uuid)
+            True
+        """
+        params = {
+            "uuid": entity_uuid
+        }
+        return self._send_command("removeEntity", params)
+
+    def getEntityEquipment(self, entity_uuid: str) -> dict:
+        """Get the equipment of a living entity
+
+        Args:
+            entity_uuid: Entity UUID string
+
+        Returns:
+            Equipment dictionary with keys:
+                - helmet: Item string or None
+                - chestplate: Item string or None
+                - leggings: Item string or None
+                - boots: Item string or None
+                - main_hand: Item string or None
+                - off_hand: Item string or None
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If entity not found or doesn't support equipment
+
+        Example:
+            >>> uuid = mc.summon("zombie", 100, 64, 200)
+            >>> equipment = mc.getEntityEquipment(uuid)
+            >>> print(f"Helmet: {equipment['helmet']}")
+        """
+        params = {
+            "uuid": entity_uuid
+        }
+        return self._send_command("getEntityEquipment", params)
+
+    def setEntityEquipment(
+        self,
+        entity_uuid: str,
+        equipment: dict,
+        drop_chances: dict = None
+    ) -> bool:
+        """Set the equipment of a living entity
+
+        Args:
+            entity_uuid: Entity UUID string
+            equipment: Dictionary of equipment slots to set. Keys can be:
+                - helmet: Item name (e.g., "diamond_helmet")
+                - chestplate: Item name
+                - leggings: Item name
+                - boots: Item name
+                - main_hand: Item name
+                - off_hand: Item name
+            drop_chances: Optional dictionary of drop chances (0.0-1.0) for each slot
+
+        Returns:
+            True if successful
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If entity not found or doesn't support equipment
+
+        Example:
+            >>> uuid = mc.summon("zombie", 100, 64, 200)
+            >>> mc.setEntityEquipment(uuid, {
+            ...     "helmet": "diamond_helmet",
+            ...     "chestplate": "diamond_chestplate",
+            ...     "main_hand": "diamond_sword"
+            ... }, drop_chances={"helmet": 0.1, "main_hand": 0.5})
+            True
+        """
+        params = {
+            "uuid": entity_uuid,
+            "equipment": equipment
+        }
+        if drop_chances is not None:
+            params["drop_chances"] = drop_chances
+        return self._send_command("setEntityEquipment", params)
+
+    def getVillagerData(self, villager_uuid: str) -> dict:
+        """Get villager profession, level, and trade information
+
+        Args:
+            villager_uuid: Villager entity UUID string
+
+        Returns:
+            Dictionary containing:
+                - profession: Villager profession name (e.g., "LIBRARIAN")
+                - level: Villager level (1-5)
+                - trades: List of trade dictionaries, each containing:
+                    - buy1: {"item": str, "amount": int}
+                    - buy2: {"item": str, "amount": int} or None
+                    - sell: {"item": str, "amount": int}
+                    - uses: Current number of uses
+                    - max_uses: Maximum number of uses
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If entity not found or not a villager
+
+        Example:
+            >>> uuid = mc.summon("villager", 100, 64, 200)
+            >>> data = mc.getVillagerData(uuid)
+            >>> print(f"Profession: {data['profession']}")
+            >>> print(f"Number of trades: {len(data['trades'])}")
+        """
+        params = {
+            "uuid": villager_uuid
+        }
+        return self._send_command("getVillagerData", params)
+
+    def setVillagerProfession(self, villager_uuid: str, profession: str) -> bool:
+        """Set a villager's profession
+
+        Args:
+            villager_uuid: Villager entity UUID string
+            profession: Profession name. Valid values are:
+                ARMORER, BUTCHER, CARTOGRAPHER, CLERIC, FARMER,
+                FISHERMAN, FLETCHER, LEATHERWORKER, LIBRARIAN,
+                MASON, NITWIT, NONE, SHEPHERD, TOOLSMITH, WEAPONSMITH
+
+        Returns:
+            True if successful
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If entity not found, not a villager, or invalid profession
+
+        Example:
+            >>> uuid = mc.summon("villager", 100, 64, 200)
+            >>> mc.setVillagerProfession(uuid, "LIBRARIAN")
+            True
+        """
+        params = {
+            "uuid": villager_uuid,
+            "profession": profession
+        }
+        return self._send_command("setVillagerProfession", params)
+
+    def setVillagerTrades(self, villager_uuid: str, trades: list) -> bool:
+        """Set custom trades for a villager (replaces all existing trades)
+
+        Args:
+            villager_uuid: Villager entity UUID string
+            trades: List of trade definitions. Each trade is a dictionary with:
+                - buy1: {"item": str, "amount": int} - First ingredient (required)
+                - buy2: {"item": str, "amount": int} - Second ingredient (optional)
+                - sell: {"item": str, "amount": int} - Result item (required)
+                - max_uses: Maximum number of uses (default: 10)
+                - experience_reward: Whether to give XP (default: True)
+
+        Returns:
+            True if successful
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If entity not found, not a villager, or invalid trade data
+
+        Example:
+            >>> uuid = mc.summon("villager", 100, 64, 200)
+            >>> mc.setVillagerProfession(uuid, "LIBRARIAN")
+            >>> mc.setVillagerTrades(uuid, [
+            ...     {
+            ...         "buy1": {"item": "emerald", "amount": 10},
+            ...         "sell": {"item": "diamond_sword", "amount": 1},
+            ...         "max_uses": 5
+            ...     },
+            ...     {
+            ...         "buy1": {"item": "emerald", "amount": 5},
+            ...         "buy2": {"item": "book", "amount": 1},
+            ...         "sell": {"item": "enchanted_book", "amount": 1},
+            ...         "max_uses": 10
+            ...     }
+            ... ])
+            True
+        """
+        params = {
+            "uuid": villager_uuid,
+            "trades": trades
+        }
+        return self._send_command("setVillagerTrades", params)
+
     def clone(self, x1: int, y1: int, z1: int,
               x2: int, y2: int, z2: int,
               dest_x: int, dest_y: int, dest_z: int) -> int:
