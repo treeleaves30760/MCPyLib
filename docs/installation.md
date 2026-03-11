@@ -9,8 +9,8 @@ This guide will help you complete the installation and setup of MCPyLib.
 - pip (Python package manager)
 
 ### Minecraft Server Plugin
-- Minecraft Server (Spigot or Paper) version 1.20.1 or higher
-- Java 17 or higher
+- Minecraft Server (Spigot or Paper) version 1.21.4 or higher
+- Java 21 or higher
 - Maven 3.6+ (if building from source)
 
 ## Installation Steps
@@ -180,7 +180,7 @@ If you need to connect from other computers:
 **Solutions**:
 1. Check server logs (`logs/latest.log`) for error messages
 2. Verify Java version is 17 or higher: `java -version`
-3. Confirm server version is Spigot/Paper 1.20.1+
+3. Confirm server version is Spigot/Paper 1.21.4+
 4. Re-download or recompile the plugin
 
 ### Python Package Won't Install

@@ -50,7 +50,7 @@ All requests follow this structure:
 
 **Fields:**
 - `token` (string): Authentication token for security
-- `action` (string): Command to execute (`setblock`, `getblock`, `fill`, `getPos`)
+- `action` (string): Command to execute (see [All Supported Actions](#all-supported-actions) for the full list)
 - `params` (object): Command-specific parameters
 
 ### Response Message
@@ -247,6 +247,84 @@ The `data` field contains an array of `[x, y, z]` coordinates as integers.
   "error": "Player not found: Steve"
 }
 ```
+
+### All Supported Actions
+
+The following table lists all supported actions and their parameters:
+
+| Action | Parameters | Response Data |
+|--------|-----------|---------------|
+| `setblock` | `x`, `y`, `z`, `block`, `block_state?`, `nbt?` | `1` (int) |
+| `getblock` | `x`, `y`, `z` | Block type string |
+| `fill` | `x1`, `y1`, `z1`, `x2`, `y2`, `z2`, `block` | Blocks affected (int) |
+| `clone` | `x1`, `y1`, `z1`, `x2`, `y2`, `z2`, `dest_x`, `dest_y`, `dest_z` | Blocks cloned (int) |
+| `bulkEdit` | `x`, `y`, `z`, `blocks` (3D array) | Blocks placed (int) |
+| `getPos` | `username` | `[x, y, z]` array |
+| `teleport` | `username`, `x`, `y`, `z`, `yaw?`, `pitch?` | `true` |
+| `gamemode` | `username`, `mode` | `true` |
+| `give` | `username`, `item`, `amount` | `true` |
+| `exec` | `command` | `true` |
+| `effect` | `username`, `effect`, `duration?`, `amplifier?`, `hide_particles?` | `true` |
+| `clearEffect` | `username`, `effect?` | `true` |
+| `clear` | `username`, `item?`, `max_count?` | Items removed (int) |
+| `experience` | `username`, `action`, `amount`, `target?` | `{level, points, progress}` |
+| `difficulty` | `level` | `true` |
+| `gamerule` | `rule`, `value?` | Current value (string) |
+| `say` | `message` | `true` |
+| `tell` | `username`, `message` | `true` |
+| `tellraw` | `username`, `json_text` | `true` |
+| `title` | `username`, `title?`, `subtitle?`, `fade_in?`, `stay?`, `fade_out?` | `true` |
+| `playsound` | `username`, `sound`, `source?`, `x?`, `y?`, `z?`, `volume?`, `pitch?` | `true` |
+| `stopsound` | `username`, `sound?`, `source?` | `true` |
+| `particle` | `particle`, `x`, `y`, `z`, `count?`, `dx?`, `dy?`, `dz?`, `speed?` | `true` |
+| `spawnpoint` | `username`, `x?`, `y?`, `z?` | `true` |
+| `setWorldSpawn` | `x`, `y`, `z` | `true` |
+| `worldborder` | `action`, `value?`, `time?`, `x?`, `z?` | Border info (dict) |
+| `forceload` | `action`, `x`, `z` | `true`/`false` |
+| `summon` | `entity_type`, `x`, `y`, `z` | Entity UUID (string) |
+| `kill` | `selector` | Entities killed (int) |
+| `getEntityPos` | `uuid` | `{x, y, z, yaw, pitch}` |
+| `getEntityStatus` | `uuid` | Entity status (dict) |
+| `teleportEntity` | `uuid`, `x`, `y`, `z`, `yaw?`, `pitch?` | `true` |
+| `setEntityVelocity` | `uuid`, `vx`, `vy`, `vz` | `true` |
+| `setEntityRotation` | `uuid`, `yaw`, `pitch` | `true` |
+| `setEntityAI` | `uuid`, `enabled` | `true` |
+| `setEntityTarget` | `uuid`, `target_uuid?` | `true` |
+| `removeEntity` | `uuid` | `true` |
+| `getEntityEquipment` | `uuid` | Equipment slots (dict) |
+| `setEntityEquipment` | `uuid`, `equipment`, `drop_chances?` | `true` |
+| `damage` | `uuid`, `amount`, `source_uuid?` | `true` |
+| `ride` | `passenger_uuid`, `vehicle_uuid?` | `true` |
+| `attribute` | `uuid`, `attribute`, `action?`, `value?` | `{base_value, value}` |
+| `addTag` | `uuid`, `tag` | `true`/`false` |
+| `removeTag` | `uuid`, `tag` | `true`/`false` |
+| `getTags` | `uuid` | Tags list |
+| `getVillagerData` | `uuid` | Villager data (dict) |
+| `setVillagerProfession` | `uuid`, `profession` | `true` |
+| `setVillagerTrades` | `uuid`, `trades` (array) | `true` |
+| `addObjective` | `name`, `criteria`, `display_name?` | `true` |
+| `removeObjective` | `name` | `true` |
+| `setScore` | `objective`, `player`, `score` | `true` |
+| `getScore` | `objective`, `player` | Score (int) |
+| `setDisplaySlot` | `slot`, `objective?` | `true` |
+| `team` | `action`, `name?`, `members?`, `option?`, `value?`, `display_name?` | Team info (dict) |
+| `bossbar` | `action`, `id`, `title?`, `color?`, `style?`, `progress?`, `visible?`, `username?` | Bar info (dict) |
+| `enchant` | `username`, `enchantment`, `level?` | `true` |
+| `getItem` | `username`, `slot` | Item info (dict) |
+| `setItem` | `username`, `slot`, `item`, `amount?` | `true` |
+| `locate` | `structure`, `x?`, `z?` | `{found, x?, y?, z?}` |
+| `advancement` | `username`, `action`, `advancement` | `true`/`false` |
+| `loot` | `loot_table`, `x`, `y`, `z` | Items generated (int) |
+| `fillbiome` | `x1`, `y1`, `z1`, `x2`, `y2`, `z2`, `biome`, `filter_biome?` | `true` |
+| `placeFeature` | `feature`, `x?`, `y?`, `z?` | `true` |
+| `placeStructure` | `structure`, `x?`, `y?`, `z?` | `true` |
+| `placeJigsaw` | `pool`, `target`, `max_depth`, `x?`, `y?`, `z?` | `true` |
+| `placeTemplate` | `template`, `x?`, `y?`, `z?`, `rotation?`, `mirror?`, `integrity?`, `seed?` | `true` |
+| `spreadplayers` | `center_x`, `center_z`, `spread_distance`, `max_range`, `usernames` | `true` |
+| `defaultgamemode` | `mode` | `true` |
+| `list` | (none) | `{online_count, max_players, players}` |
+
+*Parameters marked with `?` are optional.*
 
 ## Error Handling
 

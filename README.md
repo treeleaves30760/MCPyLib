@@ -14,16 +14,27 @@ MCPyLib enables programmatic control of Minecraft servers via Python. It consist
 ### Key Features
 
 - **High-Performance Bulk Editing** - Build large structures quickly with WorldEdit-like performance
-- **Block Placement** - Set individual blocks with state and NBT support
-- **Player Control** - Teleport, change gamemode, give items
-- **World Management** - Control time, weather, and entities
-- **Region Operations** - Fill, clone, and bulk edit regions
+- **Block Operations** - Set, get, fill, clone, and bulk edit blocks with state and NBT support
+- **Player Control** - Teleport, change gamemode, give items, apply effects, manage experience
+- **Inventory Management** - Get and set items in player inventories
+- **Entity Control** - Summon, kill, teleport, set velocity/rotation, manage AI and targeting for 10+ entity commands
+- **Entity Equipment & Interaction** - Equip entities, deal damage, manage riding, and modify attributes
+- **Entity Tags** - Add, remove, and query entity tags
+- **Villager System** - Query villager data, set professions, and configure custom trades
+- **Scoreboard & Teams** - Full scoreboard objective management, score tracking, and team control
+- **Boss Bars** - Create and manage custom boss bars
+- **Chat & Display** - Send messages, raw JSON text, titles, play and stop sounds
+- **World Settings** - Control time, weather, difficulty, game rules, and default gamemode
+- **World Generation** - Locate structures, generate loot, fill biomes, and place features/structures/jigsaws/templates
+- **World Border & Chunks** - Manage world border and force-load chunks
+- **Particles & Spawn** - Create particle effects and set spawn points
+- **Server Utilities** - Execute raw commands, spread players, list online players, manage advancements
 
 ## Quick Start
 
 ### Server Setup
 
-1. Place `MCPyLib-Plugin-0.1.0.jar` in your server's `plugins` folder
+1. Place `MCPyLib-Plugin-1.1.0.jar` in your server's `plugins` folder
 2. Start or restart your Minecraft server
 3. Generate an authentication token:
 
@@ -110,95 +121,168 @@ mc.edit(100, 64, 200, blocks)
 
 ## API Reference
 
-### Block Operations
+MCPyLib provides **71 commands** across 18 categories.
 
-**`setblock(x, y, z, block_name, block_state=None, nbt=None)`**
+### Block Operations (5)
 
-- Place a block with optional state and NBT data
-- Supports block states (e.g., stairs orientation, fence gate status)
-- Supports NBT data (e.g., chest names, sign text)
+| Method | Parameters | Description |
+| ------ | ---------- | ----------- |
+| `setblock` | `x, y, z, block_name, block_state=None, nbt=None` | Place a block with optional state and NBT data |
+| `getblock` | `x, y, z` | Get the block type at coordinates |
+| `fill` | `x1, y1, z1, x2, y2, z2, block_name` | Fill a cuboid region with a block type |
+| `clone` | `x1, y1, z1, x2, y2, z2, dest_x, dest_y, dest_z` | Clone a region to a new location (max 32,768 blocks) |
+| `edit` | `x, y, z, blocks` | High-performance bulk block editing with a 3D array |
 
-```python
-# Basic placement
-mc.setblock(100, 64, 200, "minecraft:stone")
+### Player Control (4)
 
-# With block state
-mc.setblock(100, 64, 200, "minecraft:oak_stairs",
-    block_state={"facing": "north", "half": "bottom"})
+| Method | Parameters | Description |
+| ------ | ---------- | ----------- |
+| `getPos` | `username` | Get player coordinates as `[x, y, z]` |
+| `teleport` | `username, x, y, z, yaw=None, pitch=None` | Teleport player to coordinates with optional rotation |
+| `gamemode` | `username, mode` | Set player gamemode (`survival`, `creative`, `adventure`, `spectator`) |
+| `give` | `username, item, amount=1` | Give items to a player (1-64 per operation) |
 
-# With NBT data
-mc.setblock(100, 64, 200, "minecraft:chest",
-    nbt={"CustomName": '{"text":"Storage"}'})
-```
+### Player Effects & Inventory (5)
 
-**`getblock(x, y, z)`**
+| Method | Parameters | Description |
+| ------ | ---------- | ----------- |
+| `effect` | `username, effect_id, duration=30, amplifier=0, hide_particles=False` | Apply a status effect to a player |
+| `clearEffect` | `username, effect_id=None` | Remove a specific effect or all effects from a player |
+| `clear` | `username, item=None, max_count=None` | Clear items from a player's inventory |
+| `experience` | `username, action, amount, type="points"` | Add, set, or query player experience (points or levels) |
+| `enchant` | `username, enchantment, level=1` | Enchant the item the player is holding |
 
-- Returns block type at specified coordinates
+### Inventory Management (2)
 
-**`fill(x1, y1, z1, x2, y2, z2, block_name)`**
+| Method | Parameters | Description |
+| ------ | ---------- | ----------- |
+| `getItem` | `username, slot` | Get item data from a specific inventory slot |
+| `setItem` | `username, slot, item, amount=1, nbt=None` | Set an item in a specific inventory slot |
 
-- Fills a cuboid region with specified block
-- Returns number of blocks affected
+### World Settings (5)
 
-**`edit(x, y, z, blocks)`**
+| Method | Parameters | Description |
+| ------ | ---------- | ----------- |
+| `time` | `action, value=None` | Control world time (`set`, `add`, `query`) |
+| `weather` | `condition, duration=None` | Set weather (`clear`, `rain`, `thunder`) with optional duration |
+| `difficulty` | `level` | Set server difficulty (`peaceful`, `easy`, `normal`, `hard`) |
+| `gamerule` | `rule, value=None` | Get or set a game rule |
+| `defaultgamemode` | `mode` | Set the default gamemode for new players |
 
-- High-performance bulk block editing (like WorldEdit)
-- Place large structures with mixed block types in a single operation
-- Accepts 3D array where each element can be:
-  - String for simple blocks (e.g., "stone")
-  - None to skip positions
-  - Dict for complex blocks with state/NBT
-- Ideal for building large, complex structures quickly
+### Chat & Display (6)
 
-**`clone(x1, y1, z1, x2, y2, z2, dest_x, dest_y, dest_z)`**
+| Method | Parameters | Description |
+| ------ | ---------- | ----------- |
+| `say` | `message` | Broadcast a message to all players |
+| `tell` | `username, message` | Send a private message to a player |
+| `tellraw` | `username, json_text` | Send a raw JSON text message to a player |
+| `title` | `username, title_type, text, fade_in=None, stay=None, fade_out=None` | Display a title, subtitle, or actionbar text |
+| `playsound` | `sound, source, username, x=None, y=None, z=None, volume=1, pitch=1` | Play a sound for a player |
+| `stopsound` | `username, source=None, sound=None` | Stop playing sounds for a player |
 
-- Clones a region to a new location
-- Maximum 32,768 blocks per operation
+### Particle & Spawn (3)
 
-### Player Control
+| Method | Parameters | Description |
+| ------ | ---------- | ----------- |
+| `particle` | `particle_type, x, y, z, dx=0, dy=0, dz=0, speed=0, count=1` | Create particle effects at a location |
+| `spawnpoint` | `username, x=None, y=None, z=None` | Set a player's spawn point |
+| `setworldspawn` | `x, y, z` | Set the world's default spawn point |
 
-**`getPos(username)`**
+### World Border & Chunks (2)
 
-- Returns player coordinates as `[x, y, z]`
+| Method | Parameters | Description |
+| ------ | ---------- | ----------- |
+| `worldborder` | `action, value=None, time=None` | Manage the world border (set, add, get, center, damage, warning) |
+| `forceload` | `action, x1, z1, x2=None, z2=None` | Force-load or unload chunks |
 
-**`teleport(username, x, y, z, yaw=None, pitch=None)`**
+### Entity Control (10)
 
-- Teleports player to coordinates with optional rotation
+| Method | Parameters | Description |
+| ------ | ---------- | ----------- |
+| `summon` | `entity_type, x, y, z` | Summon an entity at coordinates, returns UUID |
+| `kill` | `selector` | Remove entities matching a selector |
+| `getEntityPos` | `uuid` | Get entity coordinates as `[x, y, z]` |
+| `getEntityStatus` | `uuid` | Get entity status (health, type, custom name, etc.) |
+| `teleportEntity` | `uuid, x, y, z, yaw=None, pitch=None` | Teleport an entity to coordinates |
+| `setEntityVelocity` | `uuid, vx, vy, vz` | Set an entity's velocity vector |
+| `setEntityRotation` | `uuid, yaw, pitch` | Set an entity's rotation |
+| `setEntityAI` | `uuid, enabled` | Enable or disable an entity's AI |
+| `setEntityTarget` | `uuid, target_uuid` | Set an entity's attack target |
+| `removeEntity` | `uuid` | Remove a specific entity by UUID |
 
-**`gamemode(username, mode)`**
+### Entity Equipment (2)
 
-- Changes player gamemode
-- Valid modes: `survival`, `creative`, `adventure`, `spectator`
+| Method | Parameters | Description |
+| ------ | ---------- | ----------- |
+| `getEntityEquipment` | `uuid` | Get all equipment slots for an entity |
+| `setEntityEquipment` | `uuid, slot, item, nbt=None` | Set equipment in a specific slot (head, chest, legs, feet, mainhand, offhand) |
 
-**`give(username, item, amount=1)`**
+### Entity Interaction (3)
 
-- Gives items to player (1-64 per operation)
+| Method | Parameters | Description |
+| ------ | ---------- | ----------- |
+| `damage` | `uuid, amount, damage_type=None` | Deal damage to an entity |
+| `ride` | `uuid, vehicle_uuid` | Make an entity ride another entity |
+| `attribute` | `uuid, attribute_name, value=None, modifier=None` | Get or modify entity attributes |
 
-### World Control
+### Entity Tags (3)
 
-**`time(action, value=None)`**
+| Method | Parameters | Description |
+| ------ | ---------- | ----------- |
+| `addTag` | `uuid, tag` | Add a scoreboard tag to an entity |
+| `removeTag` | `uuid, tag` | Remove a scoreboard tag from an entity |
+| `getTags` | `uuid` | Get all scoreboard tags on an entity |
 
-- Controls world time
-- Actions: `set` (0-24000), `add`, `query`
+### Villager (3)
 
-**`weather(condition, duration=None)`**
+| Method | Parameters | Description |
+| ------ | ---------- | ----------- |
+| `getVillagerData` | `uuid` | Get villager profession, level, and trade data |
+| `setVillagerProfession` | `uuid, profession` | Set a villager's profession |
+| `setVillagerTrades` | `uuid, trades` | Configure custom trades for a villager |
 
-- Sets weather condition
-- Conditions: `clear`, `rain`, `thunder`
-- Duration in seconds (optional)
+### Scoreboard (5)
 
-### Entity Control
+| Method | Parameters | Description |
+| ------ | ---------- | ----------- |
+| `addObjective` | `name, criteria, display_name=None` | Create a new scoreboard objective |
+| `removeObjective` | `name` | Remove a scoreboard objective |
+| `setScore` | `player, objective, value` | Set a player's score for an objective |
+| `getScore` | `player, objective` | Get a player's score for an objective |
+| `setDisplaySlot` | `slot, objective=None` | Set which objective is displayed in a slot (sidebar, list, belowName) |
 
-**`summon(entity_type, x, y, z)`**
+### Teams (1)
 
-- Summons entity at coordinates
-- Returns entity UUID
+| Method | Parameters | Description |
+| ------ | ---------- | ----------- |
+| `team` | `action, name=None, **kwargs` | Manage teams (add, remove, join, leave, modify options) |
 
-**`kill(selector)`**
+### Boss Bar (1)
 
-- Removes entities matching selector
-- Selectors: `all`, entity type (e.g., `zombie`), `player:username`
-- Returns number of entities killed
+| Method | Parameters | Description |
+| ------ | ---------- | ----------- |
+| `bossbar` | `action, bar_id=None, **kwargs` | Manage boss bars (add, remove, set value/max/color/style/players) |
+
+### World Generation (7)
+
+| Method | Parameters | Description |
+| ------ | ---------- | ----------- |
+| `locate` | `structure_type` | Find the nearest structure of a given type |
+| `loot` | `action, **kwargs` | Generate and give loot from loot tables |
+| `fillbiome` | `x1, y1, z1, x2, y2, z2, biome` | Fill a region with a specific biome |
+| `placeFeature` | `feature, x, y, z` | Place a configured feature at a location |
+| `placeStructure` | `structure, x, y, z` | Place a structure at a location |
+| `placeJigsaw` | `pool, target, max_depth, x, y, z` | Place a jigsaw structure at a location |
+| `placeTemplate` | `template, x, y, z, rotation=None, mirror=None` | Place a structure template with optional rotation and mirroring |
+
+### Server & Utility (4)
+
+| Method | Parameters | Description |
+| ------ | ---------- | ----------- |
+| `exec` | `command` | Execute a raw server command |
+| `spreadplayers` | `x, z, spread_distance, max_range, respect_teams, targets` | Spread players randomly across an area |
+| `list` | | Get a list of online players |
+| `advancement` | `action, username, advancement=None` | Grant, revoke, or query player advancements |
 
 ## Examples
 
@@ -280,6 +364,142 @@ count = mc.edit(100, 64, 200, blocks)
 print(f"House built: {count} blocks placed")
 ```
 
+### Effects & Experience
+
+```python
+# Give a player night vision for 60 seconds
+mc.effect("Steve", "minecraft:night_vision", duration=60, amplifier=0)
+
+# Give speed boost with hidden particles
+mc.effect("Steve", "minecraft:speed", duration=120, amplifier=2, hide_particles=True)
+
+# Clear all effects from a player
+mc.clearEffect("Steve")
+
+# Add 10 experience levels
+mc.experience("Steve", "add", 10, type="levels")
+
+# Query current experience
+xp = mc.experience("Steve", "query", 0, type="levels")
+print(f"Player level: {xp}")
+
+# Enchant the held item
+mc.enchant("Steve", "minecraft:sharpness", level=5)
+```
+
+### Chat & Titles
+
+```python
+# Broadcast a message
+mc.say("Server restarting in 5 minutes!")
+
+# Send a private message
+mc.tell("Steve", "You have been selected for a quest!")
+
+# Send formatted JSON text
+mc.tellraw("Steve", [
+    {"text": "Click ", "color": "white"},
+    {"text": "[HERE]", "color": "green", "bold": True,
+     "clickEvent": {"action": "run_command", "value": "/spawn"}}
+])
+
+# Display a title with subtitle
+mc.title("Steve", "title", "Welcome!")
+mc.title("Steve", "subtitle", "Enjoy your stay")
+mc.title("Steve", "times", None, fade_in=20, stay=60, fade_out=20)
+
+# Play a sound
+mc.playsound("minecraft:entity.ender_dragon.growl", "master", "Steve")
+
+# Display actionbar text
+mc.title("Steve", "actionbar", "Health: 20/20")
+```
+
+### Scoreboard & Teams
+
+```python
+# Create a scoreboard objective
+mc.addObjective("kills", "playerKillCount", "Player Kills")
+
+# Display it on the sidebar
+mc.setDisplaySlot("sidebar", "kills")
+
+# Set and get scores
+mc.setScore("Steve", "kills", 15)
+score = mc.getScore("Steve", "kills")
+print(f"Steve's kills: {score}")
+
+# Create and configure a team
+mc.team("add", "red_team")
+mc.team("modify", "red_team", color="red", prefix="[RED] ")
+mc.team("join", "red_team", members=["Steve", "Alex"])
+
+# Clean up
+mc.team("remove", "red_team")
+mc.removeObjective("kills")
+```
+
+### Boss Bars
+
+```python
+# Create a boss bar
+mc.bossbar("add", "my_bar", name="Dungeon Progress")
+
+# Configure the boss bar
+mc.bossbar("set", "my_bar", value=50, max=100)
+mc.bossbar("set", "my_bar", color="red", style="segmented_10")
+
+# Show it to specific players
+mc.bossbar("set", "my_bar", players=["Steve", "Alex"])
+
+# Update progress over time
+import time
+for i in range(101):
+    mc.bossbar("set", "my_bar", value=i)
+    time.sleep(0.5)
+
+# Remove the boss bar
+mc.bossbar("remove", "my_bar")
+```
+
+### Entity Interaction
+
+```python
+# Summon and control a zombie
+uuid = mc.summon("minecraft:zombie", 100, 64, 200)
+
+# Get entity info
+status = mc.getEntityStatus(uuid)
+print(f"Entity health: {status['health']}")
+
+# Disable AI and position the entity
+mc.setEntityAI(uuid, False)
+mc.teleportEntity(uuid, 105, 64, 205, yaw=90, pitch=0)
+
+# Equip the entity
+mc.setEntityEquipment(uuid, "head", "minecraft:diamond_helmet")
+mc.setEntityEquipment(uuid, "mainhand", "minecraft:diamond_sword")
+
+# Launch the entity upward
+mc.setEntityVelocity(uuid, 0, 1.5, 0)
+
+# Tag entities for later reference
+mc.addTag(uuid, "arena_mob")
+tags = mc.getTags(uuid)
+print(f"Tags: {tags}")
+
+# Deal damage to the entity
+mc.damage(uuid, 5.0, "minecraft:player_attack")
+
+# Make one entity ride another
+pig_uuid = mc.summon("minecraft:pig", 100, 64, 200)
+mc.ride(uuid, pig_uuid)
+
+# Clean up
+mc.removeEntity(uuid)
+mc.removeEntity(pig_uuid)
+```
+
 ### Player Monitoring
 
 ```python
@@ -295,17 +515,22 @@ while True:
 ```
 
 See the [`examples`](examples/) directory for complete examples including:
-- [`example.py`](examples/example.py) - Basic operations
-- [`example_advanced.py`](examples/example_advanced.py) - Advanced block placement with states and NBT
-- [`example_bulk_edit.py`](examples/example_bulk_edit.py) - High-performance bulk editing
+- [`basics/01_getting_started.py`](examples/basics/01_getting_started.py) - Basic operations
+- [`basics/02_block_states_and_nbt.py`](examples/basics/02_block_states_and_nbt.py) - Advanced block placement with states and NBT
+- [`basics/03_entity_control.py`](examples/basics/03_entity_control.py) - Entity control and management
+- [`buildings/build_cabin.py`](examples/buildings/build_cabin.py) - Build a log cabin
+- [`buildings/build_structures.py`](examples/buildings/build_structures.py) - Build structures programmatically
+- [`buildings/build_maze.py`](examples/buildings/build_maze.py) - Generate and build a maze
+- [`benchmarks/fill_vs_edit.py`](examples/benchmarks/fill_vs_edit.py) - Performance comparison of fill vs edit
+- [`games/sand_cache_game.py`](examples/games/sand_cache_game.py) - A sand cache mini-game
 
 ## Requirements
 
 | Component        | Requirement          |
 | ---------------- | -------------------- |
 | Python           | 3.11+                |
-| Minecraft Server | Spigot/Paper 1.20.1+ |
-| Java             | 17+                  |
+| Minecraft Server | Spigot/Paper 1.21.4+ |
+| Java             | 21+                  |
 
 ## Error Handling
 
@@ -339,7 +564,7 @@ except CommandError as e:
 
 ## Project Information
 
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Author:** treeleaves30760
 **PyPI:** https://pypi.org/project/mcpylib/
 **Repository:** https://github.com/treeleaves30760/MCPyLib

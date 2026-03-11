@@ -419,7 +419,7 @@ build-backend = "setuptools.build_meta"
 ### Server Plugin
 
 **Runtime:**
-- Spigot/Paper API 1.20.1+ (provided scope)
+- Spigot/Paper API 1.21.4+ (provided scope)
 - Gson 2.10.1 (shaded)
 
 **Build:**
@@ -428,7 +428,7 @@ build-backend = "setuptools.build_meta"
     <dependency>
         <groupId>org.spigotmc</groupId>
         <artifactId>spigot-api</artifactId>
-        <version>1.20.1-R0.1-SNAPSHOT</version>
+        <version>1.21.4-R0.1-SNAPSHOT</version>
         <scope>provided</scope>
     </dependency>
     <dependency>
@@ -584,10 +584,10 @@ Server validates:
 - [ ] Event subscriptions
 - [ ] Batch command execution
 - [ ] Connection pooling
-- [ ] More Minecraft operations
-- [ ] Player inventory management
-- [ ] Entity manipulation
-- [ ] World management
+- [x] More Minecraft operations (71 commands in v1.1.0)
+- [x] Player inventory management (getItem, setItem, clear, enchant)
+- [x] Entity manipulation (damage, ride, attribute, tags)
+- [x] World management (worldborder, forceload, fillbiome, place)
 
 ### API Evolution
 
