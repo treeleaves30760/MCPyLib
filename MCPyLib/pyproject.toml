@@ -1,6 +1,6 @@
 [project]
 name = "mcpylib"
-version = "1.0.1"
+version = "1.1.0"
 description = "Python library for controlling Minecraft servers with python code."
 readme = "README.md"
 license = { text = "Non-Commercial License - See LICENSE file for details" }
