@@ -43,6 +43,8 @@ public class CommandHandler {
                     return handleSetBlock(params);
                 case "getblock":
                     return handleGetBlock(params);
+                case "getblocks":
+                    return handleGetBlocks(params);
                 case "fill":
                     return handleFill(params);
                 case "bulkedit":
@@ -397,6 +399,52 @@ public class CommandHandler {
             return CommandResult.success(blockType);
         } catch (Exception e) {
             return CommandResult.error("Failed to get block: " + e.getMessage());
+        }
+    }
+
+    private static CommandResult handleGetBlocks(JsonObject params) {
+        // Get parameters
+        if (!params.has("x1") || !params.has("y1") || !params.has("z1") ||
+            !params.has("x2") || !params.has("y2") || !params.has("z2")) {
+            return CommandResult.error("Missing parameters: x1, y1, z1, x2, y2, z2");
+        }
+
+        int x1 = params.get("x1").getAsInt();
+        int y1 = params.get("y1").getAsInt();
+        int z1 = params.get("z1").getAsInt();
+        int x2 = params.get("x2").getAsInt();
+        int y2 = params.get("y2").getAsInt();
+        int z2 = params.get("z2").getAsInt();
+
+        int minX = Math.min(x1, x2);
+        int maxX = Math.max(x1, x2);
+        int minY = Math.min(y1, y2);
+        int maxY = Math.max(y1, y2);
+        int minZ = Math.min(z1, z2);
+        int maxZ = Math.max(z1, z2);
+
+        // Get world
+        World world = Bukkit.getWorlds().get(0);
+
+        // Build 3D array [x][y][z]
+        try {
+            java.util.List<java.util.List<java.util.List<String>>> result = new java.util.ArrayList<>();
+            for (int x = minX; x <= maxX; x++) {
+                java.util.List<java.util.List<String>> xLayer = new java.util.ArrayList<>();
+                for (int y = minY; y <= maxY; y++) {
+                    java.util.List<String> yLayer = new java.util.ArrayList<>();
+                    for (int z = minZ; z <= maxZ; z++) {
+                        Block block = world.getBlockAt(x, y, z);
+                        String blockType = "minecraft:" + block.getType().name().toLowerCase();
+                        yLayer.add(blockType);
+                    }
+                    xLayer.add(yLayer);
+                }
+                result.add(xLayer);
+            }
+            return CommandResult.success(result);
+        } catch (Exception e) {
+            return CommandResult.error("Failed to get blocks: " + e.getMessage());
         }
     }
 

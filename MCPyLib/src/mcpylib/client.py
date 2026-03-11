@@ -64,7 +64,7 @@ class MCPyLib:
         self._socket: Optional[socket.socket] = None
 
     def _connect(self) -> socket.socket:
-        """Establish connection to the server
+        """Establish a new connection to the server
 
         Returns:
             Connected socket
@@ -80,8 +80,79 @@ class MCPyLib:
         except socket.error as e:
             raise ConnectionError(f"Failed to connect to {self.ip}:{self.port}: {e}")
 
+    def _ensure_connected(self) -> socket.socket:
+        """Ensure persistent connection is alive, reconnect if needed
+
+        Returns:
+            Connected socket
+
+        Raises:
+            ConnectionError: If connection fails
+        """
+        if self._socket is not None:
+            try:
+                # Test if socket is still alive by peeking
+                self._socket.setblocking(False)
+                try:
+                    data = self._socket.recv(1, socket.MSG_PEEK)
+                    if not data:
+                        # Server closed connection
+                        self._close_socket()
+                except BlockingIOError:
+                    # No data available — socket is still alive
+                    pass
+                finally:
+                    self._socket.settimeout(self.timeout)
+            except (socket.error, OSError):
+                self._close_socket()
+
+        if self._socket is None:
+            self._socket = self._connect()
+
+        return self._socket
+
+    def _close_socket(self):
+        """Close the persistent socket safely"""
+        if self._socket is not None:
+            try:
+                self._socket.close()
+            except (socket.error, OSError):
+                pass
+            self._socket = None
+
+    def close(self):
+        """Close the persistent connection to the server
+
+        Call this when you are done using the client to release resources.
+
+        Example:
+            >>> mc = MCPyLib(token="your_token")
+            >>> mc.setblock(0, 64, 0, "minecraft:stone")
+            >>> mc.close()
+        """
+        self._close_socket()
+
+    def __enter__(self):
+        """Support using MCPyLib as a context manager
+
+        Example:
+            >>> with MCPyLib(token="your_token") as mc:
+            ...     mc.setblock(0, 64, 0, "minecraft:stone")
+        """
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
+    def __del__(self):
+        self._close_socket()
+
     def _send_command(self, action: str, params: dict) -> dict:
         """Send a command to the server and get response
+
+        Uses a persistent connection for better performance. Automatically
+        reconnects if the connection is lost.
 
         Args:
             action: Command action name
@@ -102,36 +173,43 @@ class MCPyLib:
             "params": params
         }
 
-        # Connect and send
-        sock = self._connect()
-        try:
-            # Send request
-            message = json.dumps(request) + "\n"
-            sock.sendall(message.encode("utf-8"))
+        message = json.dumps(request) + "\n"
+        encoded = message.encode("utf-8")
 
-            # Receive response
-            buffer = b""
-            while b"\n" not in buffer:
-                chunk = sock.recv(4096)
-                if not chunk:
-                    raise ConnectionError("Connection closed by server")
-                buffer += chunk
+        # Try sending with persistent connection, retry once on failure
+        for attempt in range(2):
+            sock = self._ensure_connected()
+            try:
+                # Send request
+                sock.sendall(encoded)
 
-            # Parse response
-            response_line = buffer.split(b"\n", 1)[0]
-            response = json.loads(response_line.decode("utf-8"))
+                # Receive response
+                buffer = b""
+                while b"\n" not in buffer:
+                    chunk = sock.recv(65536)
+                    if not chunk:
+                        raise ConnectionError("Connection closed by server")
+                    buffer += chunk
 
-            # Check response
-            if not response.get("success", False):
-                error = response.get("error", "Unknown error")
-                if "token" in error.lower():
-                    raise AuthenticationError(error)
-                raise CommandError(error)
+                # Parse response
+                response_line = buffer.split(b"\n", 1)[0]
+                response = json.loads(response_line.decode("utf-8"))
 
-            return response.get("data")
+                # Check response
+                if not response.get("success", False):
+                    error = response.get("error", "Unknown error")
+                    if "token" in error.lower():
+                        raise AuthenticationError(error)
+                    raise CommandError(error)
 
-        finally:
-            sock.close()
+                return response.get("data")
+
+            except (ConnectionError, socket.error, OSError):
+                self._close_socket()
+                if attempt == 1:
+                    raise
+            except (AuthenticationError, CommandError):
+                raise
 
     def setblock(
         self,
@@ -209,6 +287,56 @@ class MCPyLib:
             "z": z
         }
         return self._send_command("getblock", params)
+
+    def getblocks(
+        self,
+        x1: int, y1: int, z1: int,
+        x2: int, y2: int, z2: int
+    ) -> List[List[List[str]]]:
+        """Get all blocks in a rectangular region as a 3D array
+
+        Returns a 3D array in the same [x][y][z] format used by edit(),
+        so you can read a region, modify it, and write it back with edit().
+
+        Args:
+            x1: Starting X coordinate
+            y1: Starting Y coordinate
+            z1: Starting Z coordinate
+            x2: Ending X coordinate
+            y2: Ending Y coordinate
+            z2: Ending Z coordinate
+
+        Returns:
+            3D list of block types [x][y][z] (e.g., "minecraft:stone")
+
+        Raises:
+            ConnectionError: If connection fails
+            AuthenticationError: If authentication fails
+            CommandError: If command execution fails
+
+        Examples:
+            >>> blocks = mc.getblocks(100, 64, 200, 102, 65, 202)
+            >>> print(blocks[0][0][0])
+            'minecraft:stone'
+
+            >>> # Read, modify, and write back
+            >>> blocks = mc.getblocks(100, 64, 200, 110, 68, 210)
+            >>> for x in range(len(blocks)):
+            ...     for y in range(len(blocks[0])):
+            ...         for z in range(len(blocks[0][0])):
+            ...             if blocks[x][y][z] == "minecraft:stone":
+            ...                 blocks[x][y][z] = "minecraft:diamond_block"
+            >>> mc.edit(min(100, 110), min(64, 68), min(200, 210), blocks)
+        """
+        params = {
+            "x1": x1,
+            "y1": y1,
+            "z1": z1,
+            "x2": x2,
+            "y2": y2,
+            "z2": z2
+        }
+        return self._send_command("getblocks", params)
 
     def fill(
         self,
