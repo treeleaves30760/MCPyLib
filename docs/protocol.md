@@ -164,6 +164,65 @@ Get the block type at specified coordinates.
 }
 ```
 
+### getblocks
+
+Get all blocks in a rectangular region as a 3D array.
+
+**Request:**
+```json
+{
+  "token": "your_token",
+  "action": "getblocks",
+  "params": {
+    "x1": 100,
+    "y1": 64,
+    "z1": 200,
+    "x2": 102,
+    "y2": 65,
+    "z2": 202
+  }
+}
+```
+
+**Parameters:**
+- `x1` (integer): Starting X coordinate
+- `y1` (integer): Starting Y coordinate
+- `z1` (integer): Starting Z coordinate
+- `x2` (integer): Ending X coordinate
+- `y2` (integer): Ending Y coordinate
+- `z2` (integer): Ending Z coordinate
+
+**Response (Success):**
+```json
+{
+  "success": true,
+  "data": [
+    [
+      ["minecraft:stone", "minecraft:dirt", "minecraft:grass_block"],
+      ["minecraft:air", "minecraft:air", "minecraft:air"]
+    ],
+    [
+      ["minecraft:stone", "minecraft:stone", "minecraft:dirt"],
+      ["minecraft:air", "minecraft:air", "minecraft:air"]
+    ],
+    [
+      ["minecraft:stone", "minecraft:dirt", "minecraft:dirt"],
+      ["minecraft:air", "minecraft:air", "minecraft:air"]
+    ]
+  ],
+  "error": null
+}
+```
+
+**Response (Error):**
+```json
+{
+  "success": false,
+  "data": null,
+  "error": "Missing parameters: x1, y1, z1, x2, y2, z2"
+}
+```
+
 ### fill
 
 Fill a rectangular region with blocks.
@@ -256,6 +315,7 @@ The following table lists all supported actions and their parameters:
 |--------|-----------|---------------|
 | `setblock` | `x`, `y`, `z`, `block`, `block_state?`, `nbt?` | `1` (int) |
 | `getblock` | `x`, `y`, `z` | Block type string |
+| `getblocks` | `x1`, `y1`, `z1`, `x2`, `y2`, `z2` | 3D array of block type strings `[x][y][z]` |
 | `fill` | `x1`, `y1`, `z1`, `x2`, `y2`, `z2`, `block` | Blocks affected (int) |
 | `clone` | `x1`, `y1`, `z1`, `x2`, `y2`, `z2`, `dest_x`, `dest_y`, `dest_z` | Blocks cloned (int) |
 | `bulkEdit` | `x`, `y`, `z`, `blocks` (3D array) | Blocks placed (int) |

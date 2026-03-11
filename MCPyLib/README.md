@@ -202,6 +202,42 @@ block = mc.getblock(100, 64, 200)
 print(block)  # "minecraft:diamond_block"
 ```
 
+##### getblocks()
+
+```python
+getblocks(x1: int, y1: int, z1: int, x2: int, y2: int, z2: int) -> List[List[List[str]]]
+```
+
+Get all blocks in a rectangular region as a 3D array. The returned format is `[x][y][z]`, compatible with `edit()`.
+
+**Parameters:**
+- `x1`, `y1`, `z1` (int): Starting coordinates
+- `x2`, `y2`, `z2` (int): Ending coordinates
+
+**Returns:**
+- 3D list of block type strings (e.g., `"minecraft:stone"`)
+
+**Raises:**
+- `ConnectionError`: Failed to connect to server
+- `AuthenticationError`: Invalid token
+- `CommandError`: Invalid coordinates
+
+**Example:**
+```python
+# Read a region
+blocks = mc.getblocks(100, 64, 200, 105, 66, 205)
+print(blocks[0][0][0])  # "minecraft:stone"
+
+# Read, modify, and write back
+blocks = mc.getblocks(100, 64, 200, 110, 68, 210)
+for x in range(len(blocks)):
+    for y in range(len(blocks[0])):
+        for z in range(len(blocks[0][0])):
+            if blocks[x][y][z] == "minecraft:stone":
+                blocks[x][y][z] = "minecraft:diamond_block"
+mc.edit(100, 64, 200, blocks)
+```
+
 ##### fill()
 
 ```python

@@ -91,6 +91,42 @@ if mc.getblock(0, 64, 0) == "minecraft:air":
     print("No block at this location")
 ```
 
+### getblocks()
+
+```python
+getblocks(x1: int, y1: int, z1: int, x2: int, y2: int, z2: int) -> List[List[List[str]]]
+```
+
+Get all blocks in a rectangular region as a 3D array. The returned array uses `[x][y][z]` indexing, matching the format used by `edit()`.
+
+**Parameters:**
+- `x1` (int): Starting X coordinate
+- `y1` (int): Starting Y coordinate (vertical)
+- `z1` (int): Starting Z coordinate
+- `x2` (int): Ending X coordinate
+- `y2` (int): Ending Y coordinate (vertical)
+- `z2` (int): Ending Z coordinate
+
+**Returns:** `List[List[List[str]]]` -- 3D array of block type identifiers
+
+**Raises:** `ConnectionError`, `AuthenticationError`, `CommandError`
+
+**Example:**
+```python
+# Read a 3x3x3 region
+blocks = mc.getblocks(100, 64, 200, 102, 66, 202)
+print(blocks[0][0][0])  # "minecraft:stone"
+
+# Read, modify, and write back with edit()
+blocks = mc.getblocks(100, 64, 200, 110, 68, 210)
+for x in range(len(blocks)):
+    for y in range(len(blocks[0])):
+        for z in range(len(blocks[0][0])):
+            if blocks[x][y][z] == "minecraft:stone":
+                blocks[x][y][z] = "minecraft:diamond_block"
+mc.edit(100, 64, 200, blocks)
+```
+
 ### fill()
 
 ```python
