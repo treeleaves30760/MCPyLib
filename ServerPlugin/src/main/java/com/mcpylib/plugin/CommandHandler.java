@@ -487,7 +487,7 @@ public class CommandHandler {
                 for (int y = minY; y <= maxY; y++) {
                     for (int z = minZ; z <= maxZ; z++) {
                         Block block = world.getBlockAt(x, y, z);
-                        block.setType(material);
+                        block.setType(material, false);
                         count++;
                     }
                 }
@@ -558,7 +558,7 @@ public class CommandHandler {
                             if (material == null) {
                                 return CommandResult.error("Invalid block type at [" + dx + "][" + dy + "][" + dz + "]: " + blockName);
                             }
-                            block.setType(material);
+                            block.setType(material, false);
                             count++;
                         } else if (blockElement.isJsonObject()) {
                             // Complex object: block, block_state, nbt
@@ -575,7 +575,7 @@ public class CommandHandler {
                             }
 
                             // Set block type
-                            block.setType(material);
+                            block.setType(material, false);
 
                             // Apply block state if provided
                             if (blockData.has("block_state")) {

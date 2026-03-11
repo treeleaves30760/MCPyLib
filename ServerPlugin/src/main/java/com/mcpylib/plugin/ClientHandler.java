@@ -29,52 +29,56 @@ public class ClientHandler implements Runnable {
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream(), "UTF-8"));
             PrintWriter out = new PrintWriter(socket.getOutputStream(), true)
         ) {
-            // Read request
-            String requestLine = in.readLine();
-            if (requestLine == null || requestLine.trim().isEmpty()) {
-                sendError(out, "Empty request");
-                return;
-            }
+            // Persistent connection: keep reading commands until client disconnects
+            String requestLine;
+            while ((requestLine = in.readLine()) != null) {
+                if (requestLine.trim().isEmpty()) {
+                    continue;
+                }
 
-            // Parse request
-            JsonObject request;
-            try {
-                request = gson.fromJson(requestLine, JsonObject.class);
-            } catch (Exception e) {
-                sendError(out, "Invalid JSON");
-                return;
-            }
+                // Parse request
+                JsonObject request;
+                try {
+                    request = gson.fromJson(requestLine, JsonObject.class);
+                } catch (Exception e) {
+                    sendError(out, "Invalid JSON");
+                    continue;
+                }
 
-            // Validate token
-            String token = request.has("token") ? request.get("token").getAsString() : "";
-            if (!plugin.getTokenManager().validateToken(token)) {
-                sendError(out, "Invalid token");
-                return;
-            }
+                // Validate token
+                String token = request.has("token") ? request.get("token").getAsString() : "";
+                if (!plugin.getTokenManager().validateToken(token)) {
+                    sendError(out, "Invalid token");
+                    continue;
+                }
 
-            // Get action and params
-            String action = request.has("action") ? request.get("action").getAsString() : "";
-            JsonObject params = request.has("params") ? request.getAsJsonObject("params") : new JsonObject();
+                // Get action and params
+                String action = request.has("action") ? request.get("action").getAsString() : "";
+                JsonObject params = request.has("params") ? request.getAsJsonObject("params") : new JsonObject();
 
-            // Log command
-            if (plugin.getConfig().getBoolean("logging.log-commands", true)) {
-                plugin.getLogger().info("Executing command: " + action);
-            }
+                // Log command
+                if (plugin.getConfig().getBoolean("logging.log-commands", true)) {
+                    plugin.getLogger().info("Executing command: " + action);
+                }
 
-            // Execute command on main thread and wait for result
-            CommandResult result = Bukkit.getScheduler().callSyncMethod(plugin, () -> {
-                return CommandHandler.handleCommand(plugin, action, params);
-            }).get();
+                // Execute command on main thread and wait for result
+                CommandResult result = Bukkit.getScheduler().callSyncMethod(plugin, () -> {
+                    return CommandHandler.handleCommand(plugin, action, params);
+                }).get();
 
-            // Send response
-            if (result.isSuccess()) {
-                sendSuccess(out, result.getData());
-            } else {
-                sendError(out, result.getError());
+                // Send response
+                if (result.isSuccess()) {
+                    sendSuccess(out, result.getData());
+                } else {
+                    sendError(out, result.getError());
+                }
             }
 
         } catch (Exception e) {
-            plugin.getLogger().log(Level.WARNING, "Error handling client", e);
+            if (plugin.getConfig().getBoolean("logging.log-connections", true)) {
+                plugin.getLogger().log(Level.INFO, "Client disconnected: " +
+                    socket.getInetAddress().getHostAddress());
+            }
         } finally {
             try {
                 socket.close();
