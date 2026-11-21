@@ -11,7 +11,9 @@ This guide will help you complete the installation and setup of MCPyLib.
 ### Minecraft Server Plugin
 - Minecraft Server (Spigot or Paper) version 26.1 or higher
 - Java 25 or higher
-- Maven 3.6+ (if building from source)
+- Building from source needs only a JDK 25: the repository includes the Maven Wrapper, so no separate Maven install is required
+
+For Minecraft 1.21.x servers, keep using plugin 1.1.x.
 
 ## Installation Steps
 
@@ -19,7 +21,7 @@ This guide will help you complete the installation and setup of MCPyLib.
 
 #### Method 1: Using Pre-compiled JAR File
 
-1. Download `MCPyLib-Plugin-0.1.0.jar` from the Releases page
+1. Download `MCPyLib-Plugin-1.2.0.jar` from the Releases page
 2. Copy the JAR file to your Minecraft server's `plugins` folder
 3. Start or restart the Minecraft server
 
@@ -30,11 +32,11 @@ cd ServerPlugin
 ./mvnw clean package   # Windows: mvnw.cmd clean package
 ```
 
-After compilation, the JAR file will be at `ServerPlugin/target/MCPyLib-Plugin-0.1.0.jar`
+After compilation, the JAR file will be at `ServerPlugin/target/MCPyLib-Plugin-1.2.0.jar`
 
 Copy it to the server's `plugins` folder:
 ```bash
-cp target/MCPyLib-Plugin-0.1.0.jar /path/to/minecraft/server/plugins/
+cp target/MCPyLib-Plugin-1.2.0.jar /path/to/minecraft/server/plugins/
 ```
 
 ### Step 2: Start Server and Get Token
@@ -46,7 +48,7 @@ cp target/MCPyLib-Plugin-0.1.0.jar /path/to/minecraft/server/plugins/
    ```
    You should see `MCPyLib` displayed in green
 
-3. Get the authentication token:
+3. Get the authentication token. The plugin generates it on first start and prints it in the server console (`[MCPyLib] Authentication token: ...`). You can show it again with:
    ```
    /mcpylib token
    ```
@@ -54,7 +56,15 @@ cp target/MCPyLib-Plugin-0.1.0.jar /path/to/minecraft/server/plugins/
 
 ### Step 3: Install Python Package
 
-#### Development Mode Installation (Recommended)
+#### From PyPI (Recommended)
+
+```bash
+pip install mcpylib
+```
+
+Or with uv: `uv pip install mcpylib`
+
+#### Development Mode Installation
 
 If you want to modify the code or develop:
 
@@ -135,6 +145,8 @@ Reload configuration after modification:
 /mcpylib reload
 ```
 
+`/mcpylib reload` applies `require-token`, the logging options and `idle-timeout-seconds` (for new connections). Changes to `port`, `host`, `max-connections` and `token` only take effect after a server restart. To change the token without a restart, use `/mcpylib token regenerate`.
+
 ### Configure Local Connection (Recommended)
 
 If you only run Python programs locally, it's recommended to set host to `127.0.0.1` for increased security:
@@ -143,6 +155,8 @@ If you only run Python programs locally, it's recommended to set host to `127.0.
 server:
   host: '127.0.0.1'
 ```
+
+Restart the server after changing `host`.
 
 ### Configure Remote Connection
 
@@ -160,7 +174,9 @@ If you need to connect from other computers:
 - `/mcpylib` - Display plugin information
 - `/mcpylib token` - Display current authentication token
 - `/mcpylib status` - Display server status
-- `/mcpylib reload` - Reload configuration
+- `/mcpylib reload` - Reload configuration (see [Configure Server Plugin](#configure-server-plugin) for what it applies)
+
+`/mcpy` and `/mcp` are aliases of `/mcpylib`. All commands work in-game and in the server console.
 
 ### Token Management
 
@@ -169,8 +185,8 @@ If you need to connect from other computers:
 
 ### Permissions
 
-- `mcpylib.admin` - Administrator permission (default: OP)
-- `mcpylib.use` - Permission to use API (default: everyone)
+- `mcpylib.admin` - Required for all `/mcpylib` commands (default: OP)
+- `mcpylib.use` - Declared in `plugin.yml` (default: everyone) but currently not checked. Python clients are not Minecraft players: access to the API is controlled by the token alone, so anyone with the token has full access
 
 ## Troubleshooting
 
@@ -217,8 +233,17 @@ If you need to connect from other computers:
 **Solutions**:
 1. Get the correct token with `/mcpylib token`
 2. Ensure token is copied without extra spaces or line breaks
-3. Verify `security.require-token` in `config.yml` is set to `true`
+3. If you edited `security.token` in `config.yml` by hand, restart the server: `/mcpylib reload` does not reload the token
 4. Try regenerating token: `/mcpylib token regenerate`
+
+### Server Busy
+
+**Symptoms**: Python program shows `CommandError: Server busy: max-connections (10) reached...`
+
+**Solutions**:
+1. Close clients you no longer use (`mc.close()` or a `with` block); every open client holds one connection
+2. Idle connections are freed automatically after `server.idle-timeout-seconds` (default 300)
+3. Raise `server.max-connections` in `config.yml` and restart the server
 
 ### Port Already In Use
 
@@ -237,13 +262,21 @@ If you need to connect from other computers:
 2. Stop the Minecraft server
 3. Replace the old JAR file in the `plugins` folder
 4. Start the server
-5. Token and configuration files will be automatically preserved
+5. Token and configuration files will be automatically preserved (settings added in newer versions, such as `idle-timeout-seconds`, use their defaults until you add them to your `config.yml`)
+
+Plugin 1.2.0 requires Paper or Spigot 26.1+ on Java 25; stay on 1.1.x for 1.21.x servers.
 
 ### Upgrade Python Package
 
 ```bash
+pip install --upgrade mcpylib
+```
+
+If you installed from a git checkout:
+
+```bash
 cd MCPyLib
-git pull  # If installed from git
+git pull
 pip install --upgrade -e .
 ```
 
@@ -251,5 +284,5 @@ pip install --upgrade -e .
 
 After installation, check out:
 - [API Reference](api-reference.md) - Learn about all available functions
-- [README](../README.md) - View usage examples
-- [example.py](../example.py) - More example code
+- [README](https://github.com/treeleaves30760/MCPyLib#readme) - View usage examples
+- [examples](https://github.com/treeleaves30760/MCPyLib/tree/main/examples) - More example code (copy `examples/.env.example` to `examples/.env` first)

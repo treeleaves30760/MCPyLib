@@ -10,7 +10,7 @@ Complete reference for the MCPyLib Python API.
 MCPyLib(ip="127.0.0.1", port=65535, token="", timeout=10.0)
 ```
 
-Initialize a new MCPyLib client connection.
+Initialize a new MCPyLib client. No connection is made until the first command; after that the client keeps one persistent TCP connection and reuses it for every command.
 
 **Parameters:**
 - `ip` (str, optional): Server IP address. Default: `"127.0.0.1"`
@@ -30,6 +30,26 @@ mc = MCPyLib(
 )
 ```
 
+**Connection behavior:**
+- If the server closed the connection (restart, idle timeout), the next command reconnects automatically.
+- If no reply arrives within `timeout`, the command raises `ConnectionError` and is **not** sent again, because it may still have run on the server.
+- One client is not meant to be shared between threads; create one client per thread.
+
+### close()
+
+```python
+close() -> None
+```
+
+Close the persistent connection. The client can still be used afterwards: the next command opens a new connection.
+
+The client is also a context manager that calls `close()` on exit:
+
+```python
+with MCPyLib(token="your_token_here") as mc:
+    mc.setblock(100, 64, 200, "minecraft:stone")
+```
+
 ---
 
 ## Block Operations
@@ -37,7 +57,7 @@ mc = MCPyLib(
 ### setblock()
 
 ```python
-setblock(x: int, y: int, z: int, block_name: str) -> int
+setblock(x: int, y: int, z: int, block_name: str, block_state: dict = None, nbt: dict = None) -> int
 ```
 
 Place a block at the specified coordinates.
@@ -46,7 +66,13 @@ Place a block at the specified coordinates.
 - `x` (int): X coordinate
 - `y` (int): Y coordinate (vertical)
 - `z` (int): Z coordinate
-- `block_name` (str): Block type (e.g., `"minecraft:stone"` or `"stone"`)
+- `block_name` (str): Block type (e.g., `"minecraft:stone"` or `"stone"`). Item ids that are not placeable blocks (such as `"brick"`) are rejected.
+- `block_state` (dict, optional): Block state properties, e.g. `{"facing": "north", "half": "top"}`. Every vanilla property works (`type`, `rotation`, `part`, `power`, `axis`, `waterlogged`, ...). Values may be strings, numbers or booleans. An unknown property raises `CommandError`.
+- `nbt` (dict, optional): Block entity data. Only two kinds of keys are applied:
+  - `"CustomName"`: plain-text name for containers (chest, barrel, furnace, ...)
+  - `"Text1"` to `"Text4"`: the front lines of a sign
+
+  Other keys (for example `"Items"`) are ignored.
 
 **Returns:** `int` -- `1` if successful
 
@@ -58,11 +84,25 @@ Place a block at the specified coordinates.
 mc.setblock(100, 64, 200, "minecraft:diamond_block")
 mc.setblock(101, 64, 200, "gold_block")
 
-# Common blocks
-mc.setblock(0, 64, 0, "stone")
-mc.setblock(0, 65, 0, "glass")
-mc.setblock(0, 66, 0, "oak_log")
+# Block states
+mc.setblock(100, 64, 201, "oak_stairs", block_state={"facing": "north", "half": "top"})
+mc.setblock(100, 64, 202, "oak_slab", block_state={"type": "double"})
+
+# A sign with text, and a named chest
+mc.setblock(100, 64, 203, "oak_sign", block_state={"rotation": "0"},
+            nbt={"Text1": "Hello", "Text2": "World", "Text3": "", "Text4": ""})
+mc.setblock(100, 64, 204, "chest", block_state={"facing": "north"},
+            nbt={"CustomName": "Treasure Chest"})
 ```
+
+**Two-block blocks:** place both halves, in this order: a door's `half=upper` first and then `half=lower`, a bed's `part=head` first and then `part=foot`. In the other order the server's block update destroys the half placed first and the door or bed ends up broken.
+
+```python
+mc.setblock(100, 65, 205, "oak_door", block_state={"facing": "south", "half": "upper"})
+mc.setblock(100, 64, 205, "oak_door", block_state={"facing": "south", "half": "lower"})
+```
+
+Some properties are recalculated by the game when a neighboring block changes (for example a stair's `shape` follows the stairs next to it).
 
 ### getblock()
 
@@ -77,7 +117,7 @@ Get the block type at specified coordinates.
 - `y` (int): Y coordinate (vertical)
 - `z` (int): Z coordinate
 
-**Returns:** `str` -- Block type identifier (e.g., `"minecraft:stone"`)
+**Returns:** `str` -- Block type identifier (e.g., `"minecraft:stone"`). Block states are not included.
 
 **Raises:** `ConnectionError`, `AuthenticationError`, `CommandError`
 
@@ -146,9 +186,9 @@ Fill a rectangular region with the specified block type.
 
 **Example:**
 ```python
-# Fill a 10x10x10 cube with glass
+# Fill an 11x11x11 cube with glass (both corners are included)
 count = mc.fill(0, 60, 0, 10, 70, 10, "glass")
-print(f"Filled {count} blocks")
+print(f"Filled {count} blocks")  # Filled 1331 blocks
 
 # Create a floor
 mc.fill(0, 63, 0, 20, 63, 20, "stone")
@@ -157,7 +197,7 @@ mc.fill(0, 63, 0, 20, 63, 20, "stone")
 mc.fill(0, 64, 0, 0, 70, 20, "cobblestone")
 ```
 
-**Note:** The order of coordinates doesn't matter -- the function automatically determines the bounding box.
+**Note:** The order of coordinates doesn't matter -- the function automatically determines the bounding box. Blocks are placed without block updates (sand does not fall, for example). There is no size limit, but the fill runs on the server's main thread, so a very large region pauses the server while it runs; prefer `edit()` for big volumes.
 
 ### clone()
 
@@ -174,44 +214,76 @@ Clone a rectangular region of blocks to a new location.
 
 **Returns:** `int` -- Number of blocks cloned
 
+**Raises:** `CommandError` if the source region is larger than 32,768 blocks
+
 **Example:**
 ```python
-# Clone a 5x5x5 region to a new location
+# Clone a 6x6x6 region to a new location (both corners are included)
 count = mc.clone(0, 64, 0, 5, 69, 5, 100, 64, 100)
-print(f"Cloned {count} blocks")
+print(f"Cloned {count} blocks")  # Cloned 216 blocks
 ```
+
+**Note:** `dest_x, dest_y, dest_z` is where the source region's minimum corner ends up. Block types and states are copied; block entity contents (chest items, sign text) are not.
 
 ### edit()
 
 ```python
-edit(x: int, y: int, z: int, blocks: dict) -> int
+edit(x: int, y: int, z: int, blocks: List[List[List]]) -> int
 ```
 
-Edit blocks in a region using a block mapping dictionary.
+Place a whole 3D region of blocks in a single request, much faster than calling `setblock()` repeatedly (like WorldEdit). The client compresses the array (palette + run-length encoding + zlib), and the server writes plain blocks straight into the chunk sections when it can (falling back to the Bukkit API otherwise).
 
 **Parameters:**
-- `x` (int): Base X coordinate
-- `y` (int): Base Y coordinate
-- `z` (int): Base Z coordinate
-- `blocks` (dict): Dictionary mapping relative positions to block types
+- `x` (int): X coordinate of the region's minimum corner
+- `y` (int): Y coordinate of the region's minimum corner
+- `z` (int): Z coordinate of the region's minimum corner
+- `blocks` (list): 3D list indexed `blocks[x][y][z]` (the same layout `getblocks()` returns). Each entry is one of:
+  - `str`: block name, e.g. `"stone"` or `"minecraft:glass"`
+  - `None`: leave this position unchanged
+  - `dict`: `{"block": "minecraft:chest", "block_state": {...}, "nbt": {...}}`, where `block_state` and `nbt` are optional and work as in `setblock()`
 
-**Returns:** `int` -- Number of blocks edited
+**Returns:** `int` -- Number of blocks placed (`None` entries are not counted)
+
+**Raises:** `ConnectionError`, `AuthenticationError`, `CommandError` (for example an invalid block name in the palette)
 
 **Example:**
 ```python
-# Edit multiple blocks relative to a base position
-blocks = {
-    "0,0,0": "stone",
-    "1,0,0": "oak_planks",
-    "0,1,0": "glass"
-}
+# A 2x2x2 cube: x layers, then y rows, then z values
+blocks = [
+    [["stone", "glass"], ["stone", "glass"]],
+    [["stone", "glass"], ["stone", "glass"]]
+]
 count = mc.edit(100, 64, 200, blocks)
-print(f"Edited {count} blocks")
+print(f"Placed {count} blocks")  # Placed 8 blocks
+
+# Mix plain names, skipped positions and blocks with state/NBT
+blocks = [
+    [[None, "stone"], ["glass", None]],
+    [[{
+        "block": "minecraft:chest",
+        "block_state": {"facing": "north"},
+        "nbt": {"CustomName": "Loot"}
+    }, "stone"], ["diamond_block", "gold_block"]]
+]
+mc.edit(100, 64, 200, blocks)  # 6
+
+# Build an empty 10x5x10 array and fill parts of it
+size_x, size_y, size_z = 10, 5, 10
+blocks = [[[None] * size_z for _ in range(size_y)] for _ in range(size_x)]
+for x in range(size_x):
+    for z in range(size_z):
+        blocks[x][0][z] = "stone"        # floor
+        blocks[x][4][z] = "oak_planks"   # roof
+mc.edit(100, 64, 200, blocks)  # 200
 ```
+
+**Note:** Plain blocks are written without block updates. Entries with `block_state` or `nbt` are applied in a second pass with block updates, in `x`, `y`, `z` order, so place two-block blocks such as doors and beds with `setblock()` instead (see [setblock()](#setblock)).
 
 ---
 
 ## Player Control
+
+Player names are matched case-insensitively. `getPos()`, `teleport()`, `gamemode()`, `give()` and `kill("player:...")` need the full name. The other player commands look players up with Bukkit's `getPlayer()`, which also accepts the start of a name (`"Ste"` finds `"Steve"`; the closest match wins), except `tellraw()` and `spreadplayers()`, which pass the names to the vanilla command. An unknown or offline player raises `CommandError` (`Player not found: <name>`).
 
 ### getPos()
 
@@ -222,7 +294,7 @@ getPos(username: str) -> List[int]
 Get a player's current position.
 
 **Parameters:**
-- `username` (str): Player's Minecraft username (case-sensitive)
+- `username` (str): Player's Minecraft username (the full name; case does not matter)
 
 **Returns:** `List[int]` -- List of `[x, y, z]` coordinates (integers, rounded down)
 
@@ -298,7 +370,7 @@ Give an item to a player.
 **Parameters:**
 - `username` (str): Player's Minecraft username
 - `item` (str): Item type (e.g., `"diamond_sword"`, `"minecraft:golden_apple"`)
-- `amount` (int, optional): Number of items. Default: `1`
+- `amount` (int, optional): Number of items, 1-64. Default: `1`
 
 **Returns:** `bool` -- `True` if successful
 
@@ -399,7 +471,9 @@ Manage a player's experience points or levels.
 - `amount` (int, optional): Amount of XP. Default: `0`
 - `target` (str, optional): Target type (`"points"` or `"levels"`). Default: `"points"`
 
-**Returns:** `dict` -- Experience information
+**Returns:** `dict` -- `{"level": int, "points": int, "progress": float}` after the action (`points` is the player's total experience, `progress` the fill of the XP bar from 0.0 to 1.0)
+
+**Note:** `"set"` with `target="points"` only moves the XP bar within the current level (`amount` divided by the points needed for the next level, clamped to 0-1). Use `target="levels"` to set the level.
 
 **Example:**
 ```python
@@ -411,6 +485,7 @@ mc.experience("Steve", "set", 30, target="levels")
 
 # Query current XP
 xp = mc.experience("Steve", "query")
+print(f"Level {xp['level']}")
 ```
 
 ### enchant()
@@ -448,14 +523,14 @@ Get information about an item in a player's inventory slot.
 
 **Parameters:**
 - `username` (str): Player's Minecraft username
-- `slot` (int): Inventory slot number
+- `slot` (int): Inventory slot number: 0-8 hotbar, 9-35 main inventory, 36-39 armor, 40 off-hand
 
-**Returns:** `dict` -- Item information (type, count, etc.)
+**Returns:** `dict` -- `{"item": "minecraft:diamond_sword", "amount": 1}`, plus `"enchantments"` (e.g. `{"sharpness": 5}`) when the item has any. An empty slot returns `{"amount": 0}` without an `"item"` key.
 
 **Example:**
 ```python
 item = mc.getItem("Steve", 0)
-print(f"Item in slot 0: {item}")
+print(f"Item in slot 0: {item.get('item')} x{item['amount']}")
 ```
 
 ### setItem()
@@ -468,7 +543,7 @@ Set an item in a player's inventory slot.
 
 **Parameters:**
 - `username` (str): Player's Minecraft username
-- `slot` (int): Inventory slot number
+- `slot` (int): Inventory slot number (see [getItem()](#getitem))
 - `item` (str): Item type
 - `amount` (int, optional): Stack size. Default: `1`
 
@@ -490,11 +565,11 @@ mc.setItem("Steve", 1, "golden_apple", 64)
 time(action: str, value: int = None) -> int
 ```
 
-Get or set the world time.
+Get or set the world time (of the main world).
 
 **Parameters:**
 - `action` (str): Action to perform (`"set"`, `"add"`, `"query"`)
-- `value` (int, optional): Time value (in ticks, or keywords like `"day"`, `"night"`)
+- `value` (int, optional): Time in ticks, required for `"set"` (0-24000) and `"add"`. Keywords such as `"day"` are not accepted; use `1000` for day, `6000` for noon, `13000` for night.
 
 **Returns:** `int` -- Current world time in ticks
 
@@ -605,7 +680,7 @@ mc.defaultgamemode("survival")
 say(message: str) -> bool
 ```
 
-Broadcast a message to all players.
+Broadcast a message to all players. It is shown as `[Server] <message>`.
 
 **Parameters:**
 - `message` (str): Message to broadcast
@@ -643,19 +718,25 @@ mc.tell("Steve", "You have been selected for the quest!")
 tellraw(username: str, json_text: str) -> bool
 ```
 
-Send a raw JSON text message to a player.
+Send a raw JSON text message to a player. The plugin runs the vanilla `tellraw` command, so selectors work too.
 
 **Parameters:**
-- `username` (str): Target player's username (or `"@a"` for all players)
-- `json_text` (str): JSON-formatted text component
+- `username` (str): Target player's username, or a target selector such as `"@a"`
+- `json_text` (str): Text component as a JSON **string** (not a dict or list; use `json.dumps()`). Minecraft 26.x uses the newer snake_case component keys, e.g. `click_event` with `"command"` (or `"url"` for `open_url`) instead of `clickEvent` with `"value"`.
 
-**Returns:** `bool` -- `True` if successful
+**Returns:** `bool` -- `True` once the command was dispatched. If no player matches, vanilla only reports "No player was found" in the server console. Malformed JSON raises `CommandError`.
 
 **Example:**
 ```python
+import json
+
 mc.tellraw("@a", '{"text":"Hello!","color":"gold","bold":true}')
 
-mc.tellraw("Steve", '[{"text":"Click "},{"text":"here","color":"blue","underlined":true,"clickEvent":{"action":"run_command","value":"/spawn"}}]')
+mc.tellraw("Steve", json.dumps([
+    {"text": "Click "},
+    {"text": "here", "color": "blue", "underlined": True,
+     "click_event": {"action": "run_command", "command": "/help"}}
+]))
 ```
 
 ### title()
@@ -667,9 +748,9 @@ title(username: str, title: str = "", subtitle: str = "", fade_in: int = 10, sta
 Display a title on a player's screen.
 
 **Parameters:**
-- `username` (str): Target player's username (or `"@a"` for all)
-- `title` (str, optional): Main title text
-- `subtitle` (str, optional): Subtitle text
+- `username` (str): Target player's username (one player; selectors such as `"@a"` are not supported)
+- `title` (str, optional): Main title text (plain text, not JSON)
+- `subtitle` (str, optional): Subtitle text (plain text, not JSON)
 - `fade_in` (int, optional): Fade-in time in ticks. Default: `10`
 - `stay` (int, optional): Stay time in ticks. Default: `70`
 - `fade_out` (int, optional): Fade-out time in ticks. Default: `20`
@@ -678,8 +759,15 @@ Display a title on a player's screen.
 
 **Example:**
 ```python
-mc.title("@a", title="Welcome!", subtitle="Enjoy the server")
+mc.title("Steve", title="Welcome!", subtitle="Enjoy the server")
 mc.title("Steve", title="Level Up!", fade_in=5, stay=40, fade_out=10)
+
+# All online players
+for player in mc.list()["players"]:
+    mc.title(player["name"], title="Welcome!")
+
+# Actionbar text: use the vanilla command
+mc.exec('title Steve actionbar {"text":"Health: 20/20"}')
 ```
 
 ### playsound()
@@ -692,9 +780,9 @@ Play a sound for a player.
 
 **Parameters:**
 - `username` (str): Target player's username
-- `sound` (str): Sound identifier (e.g., `"minecraft:entity.experience_orb.pickup"`)
-- `source` (str, optional): Sound category. Default: `"master"`
-- `x, y, z` (float, optional): Sound position. Defaults to player's location.
+- `sound` (str): Sound identifier (e.g., `"minecraft:entity.experience_orb.pickup"`). An unknown sound plays nothing; it does not raise an error.
+- `source` (str, optional): Sound category (`master`, `music`, `record`, `weather`, `block`, `hostile`, `neutral`, `player`, `ambient`, `voice`). Unknown values fall back to `master`. Default: `"master"`
+- `x, y, z` (float, optional): Sound position (all three are needed). Defaults to player's location.
 - `volume` (float, optional): Volume level. Default: `1.0`
 - `pitch` (float, optional): Pitch modifier. Default: `1.0`
 
@@ -717,7 +805,7 @@ Stop a sound playing for a player.
 **Parameters:**
 - `username` (str): Target player's username
 - `sound` (str, optional): Sound to stop. If `None`, stops all sounds.
-- `source` (str, optional): Sound category to stop
+- `source` (str, optional): Category of `sound`. Only used together with `sound`; without a sound, all sounds stop.
 
 **Returns:** `bool` -- `True` if successful
 
@@ -740,10 +828,10 @@ mc.stopsound("Steve")
 particle(particle_type: str, x: float, y: float, z: float, count: int = 1, dx: float = 0, dy: float = 0, dz: float = 0, speed: float = 0) -> bool
 ```
 
-Spawn particles at a location.
+Spawn particles at a location in the main world.
 
 **Parameters:**
-- `particle_type` (str): Particle type (e.g., `"flame"`, `"heart"`, `"explosion"`)
+- `particle_type` (str): Particle type (e.g., `"flame"`, `"heart"`, `"explosion"`). Particles that need extra data (`"dust"`, `"block"`, `"item"`, ...) are not supported and raise `CommandError`.
 - `x, y, z` (float): Center position
 - `count` (int, optional): Number of particles. Default: `1`
 - `dx, dy, dz` (float, optional): Spread in each axis. Default: `0`
@@ -760,14 +848,14 @@ mc.particle("heart", 100, 67, 200, count=10)
 ### spawnpoint()
 
 ```python
-spawnpoint(username: str, x: int = None, y: int = None, z: int = None) -> bool
+spawnpoint(username: str, x: float = None, y: float = None, z: float = None) -> bool
 ```
 
 Set a player's individual spawn point.
 
 **Parameters:**
 - `username` (str): Player's username
-- `x, y, z` (int, optional): Spawn coordinates. If omitted, uses the player's current position.
+- `x, y, z` (float, optional): Spawn coordinates (all three, in the player's world). If omitted, uses the player's current position.
 
 **Returns:** `bool` -- `True` if successful
 
@@ -785,12 +873,12 @@ mc.spawnpoint("Steve")
 setworldspawn(x: int, y: int, z: int) -> bool
 ```
 
-Set the world spawn point.
+Set the spawn point of the main world.
 
 **Parameters:**
 - `x, y, z` (int): Spawn coordinates
 
-**Returns:** `bool` -- `True` if successful
+**Returns:** `bool` -- `True` if the server accepted the new spawn location
 
 **Example:**
 ```python
@@ -807,15 +895,21 @@ mc.setworldspawn(0, 64, 0)
 worldborder(action: str, value: float = None, time: int = None, x: float = None, z: float = None) -> dict
 ```
 
-Manage the world border.
+Manage the world border of the main world.
 
 **Parameters:**
-- `action` (str): Action to perform (`"get"`, `"set"`, `"add"`, `"center"`, `"damage"`, `"warning"`)
+- `action` (str): Action to perform:
+  - `"get"`: read all settings
+  - `"set"`: set the size to `value` (blocks), over `time` seconds if given
+  - `"add"`: grow (or shrink, with a negative `value`) the size by `value`, over `time` seconds if given
+  - `"center"`: move the center to `x, z`
+  - `"damage"`: set the damage per block outside the border to `value`
+  - `"warning"`: set the warning distance to `value` (blocks) and/or the warning time to `time` (seconds)
 - `value` (float, optional): Size or amount depending on action
-- `time` (int, optional): Transition time in seconds (for `"set"` and `"add"`)
+- `time` (int, optional): Transition time in seconds (`"set"`, `"add"`) or warning time (`"warning"`)
 - `x, z` (float, optional): Center coordinates (for `"center"`)
 
-**Returns:** `dict` -- World border information
+**Returns:** `dict` -- For `"get"`: `size`, `center_x`, `center_z`, `damage_amount`, `damage_buffer`, `warning_distance`, `warning_time`. The other actions return only the values they changed (e.g. `{"size": 500.0}`).
 
 **Example:**
 ```python
@@ -838,27 +932,30 @@ info = mc.worldborder("get")
 forceload(action: str, x: int, z: int) -> bool
 ```
 
-Force-load or unload chunks.
+Force-load or unload the chunk that contains a block position (in the main world). Force-loaded chunks stay loaded without players nearby, which entity commands need: an entity in an unloaded chunk cannot be found by UUID.
 
 **Parameters:**
-- `action` (str): Action to perform (`"add"`, `"remove"`)
-- `x` (int): Chunk X coordinate
-- `z` (int): Chunk Z coordinate
+- `action` (str): Action to perform (`"add"`, `"remove"`, `"query"`)
+- `x` (int): Block X coordinate (converted to the chunk coordinate `x >> 4`)
+- `z` (int): Block Z coordinate (converted to the chunk coordinate `z >> 4`)
 
-**Returns:** `bool` -- `True` if successful
+**Returns:** `bool` -- `True` for `"add"` and `"remove"`; for `"query"`, whether the chunk is force-loaded
 
 **Example:**
 ```python
-# Force-load a chunk
-mc.forceload("add", 0, 0)
+# Force-load the chunk containing block (100, 200), i.e. chunk (6, 12)
+mc.forceload("add", 100, 200)
+print(mc.forceload("query", 100, 200))  # True
 
 # Remove force-load
-mc.forceload("remove", 0, 0)
+mc.forceload("remove", 100, 200)
 ```
 
 ---
 
 ## Entity Control
+
+Entities are addressed by the UUID string that `summon()` returns. The server can only find an entity while its chunk is loaded, so without a player nearby, call [`forceload("add", x, z)`](#forceload) before summoning. Unknown UUIDs raise `CommandError` (`Entity not found: <uuid>`), malformed ones `Invalid UUID format: <uuid>`.
 
 ### summon()
 
@@ -866,10 +963,10 @@ mc.forceload("remove", 0, 0)
 summon(entity_type: str, x: float, y: float, z: float) -> str
 ```
 
-Summon an entity at the specified location.
+Summon an entity at the specified location in the main world.
 
 **Parameters:**
-- `entity_type` (str): Entity type (e.g., `"zombie"`, `"minecraft:cow"`)
+- `entity_type` (str): Entity type (e.g., `"zombie"`, `"minecraft:cow"`). Players and non-spawnable types are rejected.
 - `x, y, z` (float): Spawn coordinates
 
 **Returns:** `str` -- UUID of the summoned entity
@@ -888,21 +985,26 @@ mc.summon("minecraft:cow", 105, 64, 200)
 kill(selector: str) -> int
 ```
 
-Kill entities matching a selector.
+Remove entities from the main world. This is not the vanilla `/kill`: only three selector forms are understood.
 
 **Parameters:**
-- `selector` (str): Target selector (e.g., `"@e[type=zombie]"`, a UUID, or a player name)
+- `selector` (str): One of:
+  - `"all"`: every non-player entity, including dropped items, armor stands, item frames, paintings and boats
+  - an entity type such as `"zombie"` or `"minecraft:cow"`: all entities of that type
+  - `"player:<name>"`: sets that player's health to 0
 
-**Returns:** `int` -- Number of entities killed
+  Vanilla selectors such as `"@e[type=zombie]"` and UUIDs are rejected with `CommandError` (use [removeEntity()](#removeentity) for a single entity).
+
+**Returns:** `int` -- Number of entities removed. `"all"` and entity types remove at most 1000 entities per call, and only entities in loaded chunks. Removed mobs drop no loot.
 
 **Example:**
 ```python
-# Kill all zombies
-count = mc.kill("@e[type=zombie]")
-print(f"Killed {count} zombies")
+# Remove all zombies
+count = mc.kill("zombie")
+print(f"Removed {count} zombies")
 
-# Kill a specific entity by UUID
-mc.kill("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
+# Kill a player
+mc.kill("player:Steve")
 ```
 
 ### getEntityPos()
@@ -916,12 +1018,12 @@ Get the position of an entity by its UUID.
 **Parameters:**
 - `entity_uuid` (str): Entity UUID
 
-**Returns:** `dict` -- Position with `x`, `y`, `z` keys
+**Returns:** `dict` -- `{"x": float, "y": float, "z": float, "yaw": float, "pitch": float}`
 
 **Example:**
 ```python
 pos = mc.getEntityPos("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
-print(f"Entity at ({pos['x']}, {pos['y']}, {pos['z']})")
+print(f"Entity at ({pos['x']}, {pos['y']}, {pos['z']}), facing yaw {pos['yaw']}")
 ```
 
 ### getEntityStatus()
@@ -935,12 +1037,19 @@ Get the status information of an entity.
 **Parameters:**
 - `entity_uuid` (str): Entity UUID
 
-**Returns:** `dict` -- Entity status (health, type, custom name, etc.)
+**Returns:** `dict` with these keys:
+- `uuid`, `type` (e.g. `"minecraft:zombie"`), `world`
+- `is_valid`, `is_dead`
+- `position` (`{x, y, z}`) and `velocity` (`{x, y, z}`)
+- `custom_name`: only present if the entity has a custom name
+- `health`, `max_health`, `has_ai`: only present for living entities
+
+Keys whose value would be null are left out by the server, so read the optional ones with `.get()`.
 
 **Example:**
 ```python
 status = mc.getEntityStatus("a1b2c3d4-e5f6-7890-abcd-ef1234567890")
-print(f"Health: {status['health']}, Type: {status['type']}")
+print(f"Health: {status.get('health')}, Type: {status['type']}")
 ```
 
 ### teleportEntity()
@@ -953,11 +1062,13 @@ Teleport an entity to the specified coordinates.
 
 **Parameters:**
 - `entity_uuid` (str): Entity UUID
-- `x, y, z` (float): Destination coordinates
+- `x, y, z` (float): Destination coordinates (in the entity's current world)
 - `yaw` (float, optional): Horizontal rotation
 - `pitch` (float, optional): Vertical rotation
 
-**Returns:** `bool` -- `True` if successful
+`yaw` and `pitch` are only applied when both are given; otherwise the entity keeps its rotation.
+
+**Returns:** `bool` -- `True` if the teleport succeeded
 
 **Example:**
 ```python
@@ -975,9 +1086,11 @@ Set an entity's velocity vector.
 
 **Parameters:**
 - `entity_uuid` (str): Entity UUID
-- `vx` (float): X velocity
-- `vy` (float): Y velocity
-- `vz` (float): Z velocity
+- `vx` (float): X velocity (blocks per tick, clamped to ±10)
+- `vy` (float): Y velocity (blocks per tick, clamped to ±10)
+- `vz` (float): Z velocity (blocks per tick, clamped to ±10)
+
+Mobs with AI disabled do not move, so velocity has no visible effect on them.
 
 **Returns:** `bool` -- `True` if successful
 
@@ -1000,8 +1113,8 @@ Set an entity's rotation.
 
 **Parameters:**
 - `entity_uuid` (str): Entity UUID
-- `yaw` (float): Horizontal rotation (-180 to 180)
-- `pitch` (float): Vertical rotation (-90 to 90)
+- `yaw` (float): Horizontal rotation (0 = south, 90 = west, 180 = north, 270 or -90 = east)
+- `pitch` (float): Vertical rotation (-90 = up, 0 = level, 90 = down)
 
 **Returns:** `bool` -- `True` if successful
 
@@ -1016,7 +1129,7 @@ mc.setEntityRotation("a1b2c3d4-...", 90.0, 0.0)
 setEntityAI(entity_uuid: str, enabled: bool) -> bool
 ```
 
-Enable or disable an entity's AI.
+Enable or disable a living entity's AI. Without AI a mob stands still like a statue (no movement, no gravity). Non-living entities raise `CommandError`.
 
 **Parameters:**
 - `entity_uuid` (str): Entity UUID
@@ -1039,11 +1152,11 @@ mc.setEntityAI("a1b2c3d4-...", True)
 setEntityTarget(entity_uuid: str, target_uuid: str = None) -> bool
 ```
 
-Set or clear an entity's attack target.
+Set or clear a mob's attack target.
 
 **Parameters:**
-- `entity_uuid` (str): Entity UUID
-- `target_uuid` (str, optional): Target entity UUID. If `None`, clears the target.
+- `entity_uuid` (str): UUID of a mob (an entity that can have a target)
+- `target_uuid` (str, optional): UUID of a living entity to target. If `None`, clears the target.
 
 **Returns:** `bool` -- `True` if successful
 
@@ -1062,7 +1175,7 @@ mc.setEntityTarget("zombie-uuid")
 removeEntity(entity_uuid: str) -> bool
 ```
 
-Remove an entity from the world.
+Remove an entity from the world (without death animation or drops). Players cannot be removed.
 
 **Parameters:**
 - `entity_uuid` (str): Entity UUID
@@ -1083,9 +1196,9 @@ damage(entity_uuid: str, amount: float, source_uuid: str = None) -> bool
 Deal damage to an entity.
 
 **Parameters:**
-- `entity_uuid` (str): Target entity UUID
+- `entity_uuid` (str): Target entity UUID (must be a living entity)
 - `amount` (float): Damage amount (in half-hearts)
-- `source_uuid` (str, optional): Source entity UUID (for attribution)
+- `source_uuid` (str, optional): Source entity UUID (for attribution). If that entity cannot be found, the damage is dealt without a source.
 
 **Returns:** `bool` -- `True` if successful
 
@@ -1110,7 +1223,7 @@ Make an entity ride another entity, or dismount.
 - `passenger_uuid` (str): Passenger entity UUID
 - `vehicle_uuid` (str, optional): Vehicle entity UUID. If `None`, dismounts the passenger.
 
-**Returns:** `bool` -- `True` if successful
+**Returns:** `bool` -- `True` if the entity was mounted (or dismounted)
 
 **Example:**
 ```python
@@ -1127,24 +1240,24 @@ mc.ride("passenger-uuid")
 attribute(entity_uuid: str, attribute_name: str, action: str = "get", value: float = None) -> dict
 ```
 
-Get or modify an entity's attribute.
+Get or set a living entity's attribute.
 
 **Parameters:**
 - `entity_uuid` (str): Entity UUID
-- `attribute_name` (str): Attribute name (e.g., `"generic.max_health"`, `"generic.movement_speed"`)
-- `action` (str, optional): Action (`"get"`, `"set"`, `"add"`, `"remove"`). Default: `"get"`
-- `value` (float, optional): Value for set/add actions
+- `attribute_name` (str): Attribute name, e.g. `"max_health"`, `"minecraft:movement_speed"`, `"attack_damage"`. Legacy names such as `"generic.max_health"` or `"GENERIC_MAX_HEALTH"` are accepted too.
+- `action` (str, optional): `"get"` or `"set"`. Default: `"get"`
+- `value` (float, optional): New base value, required for `"set"`
 
-**Returns:** `dict` -- Attribute information
+**Returns:** `dict` -- `{"base_value": float, "value": float}` (`value` includes modifiers from equipment and effects)
 
 **Example:**
 ```python
 # Get max health
-health = mc.attribute("a1b2c3d4-...", "generic.max_health")
-print(f"Max health: {health}")
+health = mc.attribute("a1b2c3d4-...", "max_health")
+print(f"Max health: {health['value']}")  # {'base_value': 20.0, 'value': 20.0}
 
 # Set max health to 40 (20 hearts)
-mc.attribute("a1b2c3d4-...", "generic.max_health", action="set", value=40.0)
+mc.attribute("a1b2c3d4-...", "max_health", action="set", value=40.0)
 ```
 
 ---
@@ -1157,18 +1270,18 @@ mc.attribute("a1b2c3d4-...", "generic.max_health", action="set", value=40.0)
 getEntityEquipment(entity_uuid: str) -> dict
 ```
 
-Get the equipment of an entity.
+Get the equipment of a living entity.
 
 **Parameters:**
 - `entity_uuid` (str): Entity UUID
 
-**Returns:** `dict` -- Equipment in each slot (head, chest, legs, feet, mainhand, offhand)
+**Returns:** `dict` -- Item id per slot, with the keys `helmet`, `chestplate`, `leggings`, `boots`, `main_hand` and `off_hand`. Empty slots are left out, so an unequipped zombie returns `{}`.
 
 **Example:**
 ```python
 equipment = mc.getEntityEquipment("a1b2c3d4-...")
-print(f"Head: {equipment.get('head')}")
-print(f"Mainhand: {equipment.get('mainhand')}")
+print(f"Helmet: {equipment.get('helmet')}")      # e.g. "minecraft:diamond_helmet" or None
+print(f"Main hand: {equipment.get('main_hand')}")
 ```
 
 ### setEntityEquipment()
@@ -1177,30 +1290,30 @@ print(f"Mainhand: {equipment.get('mainhand')}")
 setEntityEquipment(entity_uuid: str, equipment: dict, drop_chances: dict = None) -> bool
 ```
 
-Set the equipment of an entity.
+Set the equipment of a living entity. Only the slots you pass are changed.
 
 **Parameters:**
 - `entity_uuid` (str): Entity UUID
-- `equipment` (dict): Dictionary mapping slot names to item types
-- `drop_chances` (dict, optional): Dictionary mapping slot names to drop chance (0.0 to 1.0)
+- `equipment` (dict): Item type per slot. Slot keys: `helmet`, `chestplate`, `leggings`, `boots`, `main_hand`, `off_hand`. Other keys (such as `head` or `mainhand`) are silently ignored.
+- `drop_chances` (dict, optional): Drop chance per slot (0.0 to 1.0), same keys
 
 **Returns:** `bool` -- `True` if successful
 
 **Example:**
 ```python
 mc.setEntityEquipment("a1b2c3d4-...", {
-    "head": "diamond_helmet",
-    "chest": "diamond_chestplate",
-    "legs": "diamond_leggings",
-    "feet": "diamond_boots",
-    "mainhand": "diamond_sword"
+    "helmet": "diamond_helmet",
+    "chestplate": "diamond_chestplate",
+    "leggings": "diamond_leggings",
+    "boots": "diamond_boots",
+    "main_hand": "diamond_sword"
 })
 
 # With drop chances
 mc.setEntityEquipment("a1b2c3d4-...", {
-    "mainhand": "diamond_sword"
+    "main_hand": "diamond_sword"
 }, drop_chances={
-    "mainhand": 0.5
+    "main_hand": 0.5
 })
 ```
 
@@ -1220,7 +1333,7 @@ Add a scoreboard tag to an entity.
 - `entity_uuid` (str): Entity UUID
 - `tag` (str): Tag name
 
-**Returns:** `bool` -- `True` if successful
+**Returns:** `bool` -- `True` if the tag was added, `False` if the entity already had it
 
 **Example:**
 ```python
@@ -1240,7 +1353,7 @@ Remove a scoreboard tag from an entity.
 - `entity_uuid` (str): Entity UUID
 - `tag` (str): Tag name
 
-**Returns:** `bool` -- `True` if successful
+**Returns:** `bool` -- `True` if the tag was removed, `False` if the entity did not have it
 
 **Example:**
 ```python
@@ -1281,13 +1394,15 @@ Get data about a villager (profession, level, trades).
 **Parameters:**
 - `villager_uuid` (str): Villager entity UUID
 
-**Returns:** `dict` -- Villager data including profession, level, and trade information
+**Returns:** `dict` -- `{"profession": "LIBRARIAN", "level": 1, "trades": [...]}`. Each trade has `buy1`, `sell` (both `{"item": "minecraft:emerald", "amount": 10}`), `uses` and `max_uses`, plus `buy2` when the trade has a second ingredient.
 
 **Example:**
 ```python
 data = mc.getVillagerData("villager-uuid")
 print(f"Profession: {data['profession']}")
 print(f"Level: {data['level']}")
+for trade in data["trades"]:
+    print(trade["buy1"], trade.get("buy2"), "->", trade["sell"])
 ```
 
 ### setVillagerProfession()
@@ -1300,7 +1415,7 @@ Set a villager's profession.
 
 **Parameters:**
 - `villager_uuid` (str): Villager entity UUID
-- `profession` (str): Profession type (e.g., `"farmer"`, `"librarian"`, `"weaponsmith"`)
+- `profession` (str): Profession type, case-insensitive, with or without `minecraft:` (`armorer`, `butcher`, `cartographer`, `cleric`, `farmer`, `fisherman`, `fletcher`, `leatherworker`, `librarian`, `mason`, `nitwit`, `none`, `shepherd`, `toolsmith`, `weaponsmith`)
 
 **Returns:** `bool` -- `True` if successful
 
@@ -1315,19 +1430,34 @@ mc.setVillagerProfession("villager-uuid", "librarian")
 setVillagerTrades(villager_uuid: str, trades: list) -> bool
 ```
 
-Set a villager's custom trades.
+Replace all of a villager's trades with custom ones.
 
 **Parameters:**
 - `villager_uuid` (str): Villager entity UUID
-- `trades` (list): List of trade definitions
+- `trades` (list): List of trade dicts, each with:
+  - `buy1` (required): first ingredient, `{"item": "emerald", "amount": 5}`
+  - `buy2` (optional): second ingredient, same format
+  - `sell` (required): result item, same format
+  - `max_uses` (optional): uses before the trade locks. Default: `10`
+  - `experience_reward` (optional): whether trading gives XP. Default: `True`
+
+  `amount` defaults to `1` when omitted.
 
 **Returns:** `bool` -- `True` if successful
 
 **Example:**
 ```python
 trades = [
-    {"buy": "emerald", "buyAmount": 1, "sell": "diamond", "sellAmount": 1},
-    {"buy": "emerald", "buyAmount": 5, "sell": "diamond_sword", "sellAmount": 1}
+    {
+        "buy1": {"item": "emerald", "amount": 1},
+        "sell": {"item": "diamond", "amount": 1},
+    },
+    {
+        "buy1": {"item": "emerald", "amount": 5},
+        "buy2": {"item": "book", "amount": 1},
+        "sell": {"item": "enchanted_book", "amount": 1},
+        "max_uses": 5,
+    },
 ]
 mc.setVillagerTrades("villager-uuid", trades)
 ```
@@ -1347,7 +1477,9 @@ Create a new scoreboard objective.
 **Parameters:**
 - `name` (str): Objective name (internal identifier)
 - `criteria` (str): Criteria type (e.g., `"dummy"`, `"playerKillCount"`, `"health"`)
-- `display_name` (str, optional): Display name shown to players
+- `display_name` (str, optional): Display name shown to players. Defaults to `name`.
+
+Objectives live on the server's main scoreboard. Adding a name that already exists raises `CommandError`.
 
 **Returns:** `bool` -- `True` if successful
 
@@ -1381,11 +1513,11 @@ mc.removeObjective("kills")
 setScore(objective: str, player: str, score: int) -> bool
 ```
 
-Set a player's score for an objective.
+Set a player's score for an objective. Note the argument order: objective first, then the player.
 
 **Parameters:**
 - `objective` (str): Objective name
-- `player` (str): Player name
+- `player` (str): Player name, or any other score holder name (the player does not need to be online)
 - `score` (int): Score value
 
 **Returns:** `bool` -- `True` if successful
@@ -1408,7 +1540,7 @@ Get a player's score for an objective.
 - `objective` (str): Objective name
 - `player` (str): Player name
 
-**Returns:** `int` -- Score value
+**Returns:** `int` -- Score value (`0` if the score was never set)
 
 **Example:**
 ```python
@@ -1425,7 +1557,7 @@ setDisplaySlot(slot: str, objective: str = None) -> bool
 Set or clear the objective displayed in a scoreboard slot.
 
 **Parameters:**
-- `slot` (str): Display slot (`"sidebar"`, `"list"`, `"belowName"`)
+- `slot` (str): Display slot, case-insensitive: `"sidebar"`, `"below_name"`, `"player_list"`, or a team-colored sidebar such as `"sidebar_team_red"`. The vanilla spellings `"list"` and `"belowName"` are rejected.
 - `objective` (str, optional): Objective to display. If `None`, clears the slot.
 
 **Returns:** `bool` -- `True` if successful
@@ -1436,7 +1568,7 @@ Set or clear the objective displayed in a scoreboard slot.
 mc.setDisplaySlot("sidebar", "kills")
 
 # Show health below player names
-mc.setDisplaySlot("belowName", "health")
+mc.setDisplaySlot("below_name", "health")
 
 # Clear sidebar
 mc.setDisplaySlot("sidebar")
@@ -1452,17 +1584,22 @@ mc.setDisplaySlot("sidebar")
 team(action: str, name: str = None, members: list = None, option: str = None, value: str = None, display_name: str = None) -> dict
 ```
 
-Manage scoreboard teams.
+Manage scoreboard teams on the main scoreboard.
 
 **Parameters:**
-- `action` (str): Action (`"add"`, `"remove"`, `"join"`, `"leave"`, `"modify"`, `"list"`, `"empty"`)
-- `name` (str, optional): Team name
-- `members` (list, optional): List of player names (for `"join"`)
-- `option` (str, optional): Option to modify (e.g., `"color"`, `"friendlyFire"`, `"nametagVisibility"`)
-- `value` (str, optional): Value for the option
-- `display_name` (str, optional): Team display name
+- `action` (str): Action:
+  - `"add"`: create team `name` (optionally with `display_name`); returns `{"name": ...}`
+  - `"remove"`: delete team `name`; returns `{"removed": True}`
+  - `"join"` / `"leave"`: add or remove `members`; returns `{"added": n}` / `{"removed_count": n}`
+  - `"modify"`: set one `option` to `value`; returns `{"modified": True}`
+  - `"list"`: returns `{"teams": [{"name", "display_name", "members", "size"}, ...]}`
+- `name` (str, optional): Team name (required for every action except `"list"`)
+- `members` (list, optional): Entry names, usually player names (for `"join"` and `"leave"`)
+- `option` (str, optional): Option for `"modify"`, case-insensitive: `displayname`, `color`, `friendlyfire`, `seefriendlyinvisibles`, `prefix`, `suffix`
+- `value` (str, optional): Value for the option: a chat color name such as `"red"` for `color`, `"true"`/`"false"` for the two boolean options, text for the others
+- `display_name` (str, optional): Team display name (for `"add"`)
 
-**Returns:** `dict` -- Team information or operation result
+**Returns:** `dict` -- Operation result, see `action`
 
 **Example:**
 ```python
@@ -1475,8 +1612,8 @@ mc.team("join", name="red", members=["Steve", "Alex"])
 # Set team color
 mc.team("modify", name="red", option="color", value="red")
 
-# Enable friendly fire
-mc.team("modify", name="red", option="friendlyFire", value="true")
+# Disable friendly fire
+mc.team("modify", name="red", option="friendlyfire", value="false")
 
 # List teams
 teams = mc.team("list")
@@ -1495,19 +1632,27 @@ mc.team("remove", name="red")
 bossbar(action: str, bar_id: str, title: str = None, color: str = None, style: str = None, progress: float = None, visible: bool = None, username: str = None) -> dict
 ```
 
-Manage boss bars displayed to players.
+Manage boss bars displayed to players. The bars are created through the Bukkit API and kept in the plugin's memory: they are not vanilla `/bossbar` bars, and they disappear when the server restarts.
 
 **Parameters:**
-- `action` (str): Action (`"add"`, `"remove"`, `"set"`, `"get"`, `"list"`)
-- `bar_id` (str): Boss bar identifier
+- `action` (str): Action:
+  - `"add"`: create a bar (`title` defaults to `bar_id`); returns `{"id": ...}`
+  - `"set"`: change `title`, `color`, `style`, `progress` and/or `visible`; returns `{"updated": True}`
+  - `"addplayer"` / `"removeplayer"`: show or hide the bar for `username`
+  - `"get"`: returns `{"id", "title", "color", "style", "progress", "visible", "players"}`
+  - `"list"`: returns `{"bars": [ids]}`
+  - `"remove"`: delete the bar
+- `bar_id` (str): Boss bar identifier. It is required for every action; for `"list"` any value works.
 - `title` (str, optional): Display title
-- `color` (str, optional): Bar color (`"blue"`, `"green"`, `"pink"`, `"purple"`, `"red"`, `"white"`, `"yellow"`)
-- `style` (str, optional): Bar style (`"progress"`, `"notched_6"`, `"notched_10"`, `"notched_12"`, `"notched_20"`)
-- `progress` (float, optional): Progress value (0.0 to 1.0)
+- `color` (str, optional): Bar color, case-insensitive: `"pink"`, `"blue"`, `"red"`, `"green"`, `"yellow"`, `"purple"`, `"white"`
+- `style` (str, optional): Bar style (Bukkit names, case-insensitive): `"solid"`, `"segmented_6"`, `"segmented_10"`, `"segmented_12"`, `"segmented_20"`. The vanilla names (`"progress"`, `"notched_10"`, ...) do not work.
+- `progress` (float, optional): Progress value (0.0 to 1.0; clamped)
 - `visible` (bool, optional): Whether the bar is visible
-- `username` (str, optional): Player to add/remove from the bar
+- `username` (str, optional): Player for `"addplayer"` / `"removeplayer"`
 
-**Returns:** `dict` -- Boss bar information or operation result
+An unknown color or style is ignored by `"add"` (the bar is created WHITE / SOLID) but raises `CommandError` in `"set"`.
+
+**Returns:** `dict` -- Operation result, see `action`
 
 **Example:**
 ```python
@@ -1515,15 +1660,16 @@ Manage boss bars displayed to players.
 mc.bossbar("add", "my_bar", title="Event Progress")
 
 # Configure appearance
-mc.bossbar("set", "my_bar", color="red", style="notched_10", progress=0.75)
+mc.bossbar("set", "my_bar", color="red", style="segmented_10", progress=0.75)
 
 # Show to a player
-mc.bossbar("set", "my_bar", visible=True, username="Steve")
+mc.bossbar("addplayer", "my_bar", username="Steve")
 
 # Update progress
 mc.bossbar("set", "my_bar", progress=1.0)
 
-# Remove the bar
+# List bars, then remove one
+print(mc.bossbar("list", ""))  # {'bars': ['my_bar']}
 mc.bossbar("remove", "my_bar")
 ```
 
@@ -1534,21 +1680,22 @@ mc.bossbar("remove", "my_bar")
 ### locate()
 
 ```python
-locate(structure: str, x: int = None, z: int = None) -> dict
+locate(structure: str, x: float = None, z: float = None) -> dict
 ```
 
-Locate the nearest structure.
+Locate the nearest structure in the main world, searching up to 100 chunks from the origin.
 
 **Parameters:**
-- `structure` (str): Structure type (e.g., `"village"`, `"fortress"`, `"stronghold"`)
-- `x, z` (int, optional): Search origin. Defaults to world spawn.
+- `structure` (str): Structure key, with or without `minecraft:` (e.g., `"village_plains"`, `"village_desert"`, `"desert_pyramid"`, `"ancient_city"`, `"trial_chambers"`). Structure tags such as `"village"` are not accepted.
+- `x, z` (float, optional): Search origin (both or neither). Defaults to world spawn.
 
-**Returns:** `dict` -- Structure location with `x`, `y`, `z` keys
+**Returns:** `dict` -- `{"found": True, "x": int, "y": int, "z": int}`, or `{"found": False}` if nothing was found in range. The coordinates point at the structure's chunk; `y` is not a ground height (usually `0`).
 
 **Example:**
 ```python
-village = mc.locate("village")
-print(f"Nearest village at ({village['x']}, {village['z']})")
+village = mc.locate("village_plains")
+if village["found"]:
+    print(f"Nearest plains village at ({village['x']}, {village['z']})")
 ```
 
 ### loot()
@@ -1557,13 +1704,13 @@ print(f"Nearest village at ({village['x']}, {village['z']})")
 loot(loot_table: str, x: float, y: float, z: float) -> int
 ```
 
-Spawn loot from a loot table at a location.
+Roll a loot table once and drop the items at a location in the main world.
 
 **Parameters:**
-- `loot_table` (str): Loot table identifier (e.g., `"minecraft:chests/simple_dungeon"`)
+- `loot_table` (str): Loot table identifier, with or without `minecraft:` (e.g., `"chests/simple_dungeon"`)
 - `x, y, z` (float): Position to spawn loot
 
-**Returns:** `int` -- Number of items spawned
+**Returns:** `int` -- Number of item stacks dropped
 
 **Example:**
 ```python
@@ -1584,16 +1731,18 @@ Fill a region with a specific biome.
 - `biome` (str): Biome type (e.g., `"plains"`, `"desert"`, `"jungle"`)
 - `filter_biome` (str, optional): Only replace this biome type
 
-**Returns:** `bool` -- `True` if successful
+**Returns:** `bool` -- `True` once the command was dispatched
 
 **Example:**
 ```python
-# Convert a region to desert
-mc.fillbiome(0, -64, 0, 100, 320, 100, "desert")
+# Convert a 16x16x16 region to desert
+mc.fillbiome(100, 60, 200, 115, 75, 215, "desert")
 
 # Replace only plains with jungle
-mc.fillbiome(0, -64, 0, 100, 320, 100, "jungle", filter_biome="plains")
+mc.fillbiome(100, 60, 200, 115, 75, 215, "jungle", filter_biome="plains")
 ```
+
+**Vanilla-backed commands:** `fillbiome()`, `placeFeature()`, `placeStructure()`, `placeJigsaw()` and `placeTemplate()` run the vanilla command of the same name as the server console. They return `True` once the command was dispatched; the vanilla result (for example "That position is not loaded" or a too-large region) only appears in the server console, so check the result in the world. The target area must be loaded (keep a player nearby or use `forceload()`). Without coordinates, the command runs at the world spawn. An unknown biome or feature id raises `CommandError`; an unknown structure, template or template pool is only reported in the console.
 
 ### placeFeature()
 
@@ -1604,10 +1753,10 @@ placeFeature(feature: str, x: int = None, y: int = None, z: int = None) -> bool
 Place a configured feature at a location.
 
 **Parameters:**
-- `feature` (str): Feature identifier (e.g., `"minecraft:oak"`, `"minecraft:lake"`)
-- `x, y, z` (int, optional): Placement coordinates
+- `feature` (str): Configured feature identifier (e.g., `"minecraft:oak"`, `"minecraft:lake_lava"`)
+- `x, y, z` (int, optional): Placement coordinates (all three, or none)
 
-**Returns:** `bool` -- `True` if successful
+**Returns:** `bool` -- `True` once the command was dispatched (see [vanilla-backed commands](#fillbiome))
 
 **Example:**
 ```python
@@ -1624,9 +1773,9 @@ Place a structure at a location.
 
 **Parameters:**
 - `structure` (str): Structure identifier (e.g., `"minecraft:village_plains"`)
-- `x, y, z` (int, optional): Placement coordinates
+- `x, y, z` (int, optional): Placement coordinates (all three, or none)
 
-**Returns:** `bool` -- `True` if successful
+**Returns:** `bool` -- `True` once the command was dispatched (see [vanilla-backed commands](#fillbiome))
 
 **Example:**
 ```python
@@ -1644,10 +1793,10 @@ Place a jigsaw structure using a template pool.
 **Parameters:**
 - `pool` (str): Template pool identifier
 - `target` (str): Target jigsaw block name
-- `max_depth` (int): Maximum generation depth
-- `x, y, z` (int, optional): Placement coordinates
+- `max_depth` (int): Maximum generation depth (1-20)
+- `x, y, z` (int, optional): Placement coordinates (all three, or none)
 
-**Returns:** `bool` -- `True` if successful
+**Returns:** `bool` -- `True` once the command was dispatched (see [vanilla-backed commands](#fillbiome))
 
 **Example:**
 ```python
@@ -1670,7 +1819,7 @@ Place a structure template at a location.
 - `integrity` (float, optional): Structural integrity (0.0 to 1.0). Default: `1.0`
 - `seed` (int, optional): Random seed for integrity. Default: `0`
 
-**Returns:** `bool` -- `True` if successful
+**Returns:** `bool` -- `True` once the command was dispatched (see [vanilla-backed commands](#fillbiome))
 
 **Example:**
 ```python
@@ -1687,18 +1836,19 @@ mc.placeTemplate("minecraft:village/plains/houses/plains_small_house_1",
 advancement(username: str, action: str, advancement_key: str) -> bool
 ```
 
-Grant or revoke an advancement from a player.
+Grant, revoke or query an advancement of a player.
 
 **Parameters:**
 - `username` (str): Player's username
-- `action` (str): Action (`"grant"`, `"revoke"`)
-- `advancement_key` (str): Advancement identifier (e.g., `"minecraft:story/mine_stone"`)
+- `action` (str): Action (`"grant"`, `"revoke"`, `"query"`)
+- `advancement_key` (str): Advancement identifier, with or without `minecraft:` (e.g., `"story/mine_stone"`)
 
-**Returns:** `bool` -- `True` if successful
+**Returns:** `bool` -- `True` for `"grant"` and `"revoke"`; for `"query"`, whether the player has completed the advancement
 
 **Example:**
 ```python
 mc.advancement("Steve", "grant", "minecraft:story/mine_stone")
+print(mc.advancement("Steve", "query", "story/mine_stone"))  # True
 mc.advancement("Steve", "revoke", "minecraft:story/mine_stone")
 ```
 
@@ -1712,18 +1862,21 @@ mc.advancement("Steve", "revoke", "minecraft:story/mine_stone")
 exec(command: str) -> bool
 ```
 
-Execute a raw Minecraft command on the server.
+Execute any server command (vanilla or from a plugin) as the server console. Useful for everything that has no dedicated method.
 
 **Parameters:**
-- `command` (str): Raw command string (without leading `/`)
+- `command` (str): Command string; a leading `/` is optional
 
-**Returns:** `bool` -- `True` if successful
+**Returns:** `bool` -- `True` if the server found and ran the command, `False` if no such command exists. The command's own output, including vanilla errors such as "No entity was found", only appears in the server console. Malformed arguments can raise `CommandError`.
 
 **Example:**
 ```python
 mc.exec("say Hello from Python!")
-mc.exec("tp Steve 100 64 200")
+mc.exec("/tp Steve 100 64 200")
+mc.exec('title Steve actionbar {"text":"Hi"}')
 ```
+
+**Security note:** `exec()` gives every token holder full console access to the server.
 
 ### list()
 
@@ -1733,12 +1886,14 @@ list() -> dict
 
 Get a list of online players and server info.
 
-**Returns:** `dict` -- Player list and server information
+**Returns:** `dict` -- `{"online_count": int, "max_players": int, "players": [{"name": str, "uuid": str, "gamemode": "SURVIVAL"}, ...]}`
 
 **Example:**
 ```python
 info = mc.list()
-print(f"Players online: {info}")
+print(f"Players online: {info['online_count']}/{info['max_players']}")
+for player in info["players"]:
+    print(player["name"], player["gamemode"])
 ```
 
 ### spreadplayers()
@@ -1747,7 +1902,7 @@ print(f"Players online: {info}")
 spreadplayers(center_x: float, center_z: float, spread_distance: float, max_range: float, usernames: list) -> bool
 ```
 
-Spread players randomly across a region.
+Spread players randomly across a region, using the vanilla `spreadplayers` command (teams are not kept together). Like the other vanilla-backed commands, it returns `True` once dispatched; failures such as unknown players only appear in the server console.
 
 **Parameters:**
 - `center_x` (float): Center X coordinate
@@ -1794,6 +1949,7 @@ class ConnectionError(MCPyLibError):
 - Wrong IP or port
 - Firewall blocking connection
 - Plugin not loaded
+- No reply within `timeout` seconds. The command is not sent again, because it may still have run on the server; raise `timeout` for slow operations
 
 ### AuthenticationError
 
@@ -1808,8 +1964,9 @@ class AuthenticationError(MCPyLibError):
 **Common causes:**
 - Wrong token
 - Token has extra whitespace
-- Token was regenerated on server
-- Authentication disabled in config
+- Token was regenerated on server (`/mcpylib token regenerate`)
+
+The client raises `AuthenticationError` for any server error message that contains the word "token" (the server replies `Invalid token`).
 
 ### CommandError
 
@@ -1822,10 +1979,13 @@ class CommandError(MCPyLibError):
 ```
 
 **Common causes:**
-- Invalid coordinates (out of world bounds)
-- Invalid block type
-- Player not found
-- Player not online
+- Invalid block type, or an item id used as a block (`Invalid block type: brick (this is an item, not a placeable block)`)
+- Player not found or not online (`Player not found: Steve`)
+- Entity not found, usually because its chunk is not loaded (`Entity not found: <uuid>`)
+- Missing or wrongly typed parameters (`Missing parameter: ...`, `Error executing command: ...`)
+- All connection slots in use (`Server busy: max-connections (10) reached. ...`)
+
+The exception message is the server's error text.
 
 ### Exception Handling Example
 
@@ -1856,13 +2016,13 @@ except MCPyLibError as e:
 
 ## Block Names
 
-Block names can be specified with or without the `minecraft:` namespace prefix.
+Block names can be specified with or without the `minecraft:` namespace prefix. They must be placeable blocks: item ids such as `"brick"` (the item) are rejected, use `"bricks"` (the block).
 
 ### Common Block Types
 
 ```python
 # Building blocks
-"stone", "cobblestone", "brick", "stone_bricks"
+"stone", "cobblestone", "bricks", "stone_bricks"
 "oak_planks", "spruce_planks", "birch_planks"
 "glass", "white_concrete", "black_concrete"
 
@@ -1879,29 +2039,29 @@ Block names can be specified with or without the `minecraft:` namespace prefix.
 "bookshelf", "crafting_table", "furnace"
 ```
 
-For a complete list of block IDs, see the [Minecraft Wiki](https://minecraft.fandom.com/wiki/Java_Edition_data_values).
+For a complete list of block IDs, see the [Minecraft Wiki](https://minecraft.wiki/w/Java_Edition_data_values).
 
 ---
 
 ## Advanced Usage
 
-### Connection Pooling
+### Persistent Connection
 
-MCPyLib creates a new connection for each command. For better performance with many commands:
+MCPyLib keeps one TCP connection open and reuses it for every command, so many small commands in a row are cheap. Reuse one client instead of creating a new one per command, and close it when you are done:
 
 ```python
-# Execute multiple commands quickly
-mc = MCPyLib(token="your_token")
+with MCPyLib(token="your_token") as mc:
+    blocks_to_place = [
+        (0, 64, 0, "stone"),
+        (1, 64, 0, "stone"),
+        (2, 64, 0, "stone"),
+    ]
 
-blocks_to_place = [
-    (0, 64, 0, "stone"),
-    (1, 64, 0, "stone"),
-    (2, 64, 0, "stone"),
-]
-
-for x, y, z, block in blocks_to_place:
-    mc.setblock(x, y, z, block)
+    for x, y, z, block in blocks_to_place:
+        mc.setblock(x, y, z, block)
 ```
+
+The server allows `server.max-connections` (default 10) connections at once and closes connections that stay idle for `server.idle-timeout-seconds` (default 300). The client reconnects automatically after an idle close; a client that cannot get a slot receives a `CommandError` starting with `Server busy`.
 
 ### Custom Timeout
 
@@ -1915,9 +2075,11 @@ mc = MCPyLib(
     timeout=30.0  # 30 seconds
 )
 
-# Large fill operations may take longer
+# Large fill operations may take longer (about a million blocks here)
 mc.fill(0, 0, 0, 100, 100, 100, "stone")
 ```
+
+If a command times out, `ConnectionError` is raised and the command is not repeated: it may still finish on the server.
 
 ### Building Complex Structures
 
@@ -1950,14 +2112,17 @@ def spawn_army(mc, entity_type, x, y, z, count=10, spacing=2):
         uuids.append(uuid)
     return uuids
 
+# Keep the chunk loaded so the entities can be found later
+mc.forceload("add", 100, 200)
+
 # Spawn 10 zombies in formation
 uuids = spawn_army(mc, "zombie", 100, 64, 200)
 
 # Equip them all
 for uuid in uuids:
     mc.setEntityEquipment(uuid, {
-        "mainhand": "iron_sword",
-        "head": "iron_helmet"
+        "main_hand": "iron_sword",
+        "helmet": "iron_helmet"
     })
     mc.setEntityAI(uuid, False)  # Freeze in place
 ```
@@ -2016,7 +2181,7 @@ history = track_player(mc, "Steve", 60)
 
 ```python
 def safe_setblock(mc, x, y, z, block, retries=3):
-    """Set block with automatic retry"""
+    """Set block with automatic retry (safe because setblock can run twice)"""
     import time
 
     for attempt in range(retries):
@@ -2037,13 +2202,14 @@ def safe_setblock(mc, x, y, z, block, retries=3):
 ## Performance Tips
 
 1. **Use fill() for large areas** -- Much faster than individual setblock() calls
-2. **Use clone() to duplicate structures** -- Faster than rebuilding block by block
-3. **Batch operations** -- Group multiple commands together
-4. **Handle errors gracefully** -- Implement retry logic for network errors
-5. **Adjust timeout** -- Increase for slow connections or large operations
-6. **Use exec() for unsupported commands** -- Fallback for any Minecraft command not yet wrapped
-7. **Cache entity UUIDs** -- Store UUIDs from summon() calls to avoid repeated lookups
-8. **Use appropriate block names** -- Both formats work, but consistency helps
+2. **Use edit() for mixed blocks** -- One request for a whole 3D region of different blocks
+3. **Use clone() to duplicate structures** -- Faster than rebuilding block by block
+4. **Reuse one client** -- It keeps its connection open between commands
+5. **Handle errors gracefully** -- Retry network errors only for commands that are safe to run twice (a timed-out command may already have run)
+6. **Adjust timeout** -- Increase for slow connections or large operations
+7. **Use exec() for unsupported commands** -- Fallback for any Minecraft command not yet wrapped
+8. **Keep entity UUIDs** -- Store the UUIDs returned by summon(); entities can only be addressed by UUID
+9. **Use appropriate block names** -- Both formats work, but consistency helps
 
 ---
 
@@ -2052,4 +2218,4 @@ def safe_setblock(mc, x, y, z, block, retries=3):
 - [Installation Guide](installation.md) - Setup and configuration
 - [Protocol Documentation](protocol.md) - Technical details
 - [Development Guide](development.md) - Contributing and building
-- [Example Scripts](../example.py) - More code examples
+- [Example Scripts](https://github.com/treeleaves30760/MCPyLib/tree/main/examples) - More code examples

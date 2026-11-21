@@ -5,27 +5,34 @@ This guide covers building, developing, and contributing to MCPyLib.
 ## Project Structure
 
 ```
-minepy/
+MCPyLib/
 ├── MCPyLib/                    # Python client library
 │   ├── src/mcpylib/
-│   │   ├── __init__.py        # Package initialization
+│   │   ├── __init__.py        # Package initialization, __version__
 │   │   ├── client.py          # Main MCPyLib class
 │   │   └── py.typed           # Type hints marker
-│   ├── pyproject.toml         # Python project config
-│   └── README.md
+│   ├── pyproject.toml         # Python project config (uv_build backend)
+│   ├── uv.lock
+│   └── README.md              # PyPI description
 │
 ├── ServerPlugin/               # Minecraft server plugin
 │   ├── src/main/java/com/mcpylib/plugin/
 │   │   ├── MCPyLibPlugin.java      # Plugin entry point
-│   │   ├── NetworkServer.java      # TCP server
-│   │   ├── ClientHandler.java      # Connection handler
-│   │   ├── CommandHandler.java     # Command processor
+│   │   ├── NetworkServer.java      # TCP server, connection limit
+│   │   ├── ClientHandler.java      # Per-connection request loop
+│   │   ├── CommandHandler.java     # Command processor (all actions)
+│   │   ├── NMSBlockPlacer.java     # Fast bulk block writes for edit()
 │   │   ├── CommandResult.java      # Result wrapper
-│   │   ├── MCPyLibCommand.java     # In-game commands
+│   │   ├── MCPyLibCommand.java     # In-game /mcpylib command
 │   │   └── TokenManager.java       # Authentication
 │   ├── src/main/resources/
 │   │   ├── plugin.yml         # Plugin metadata
 │   │   └── config.yml         # Default configuration
+│   ├── scripts/
+│   │   ├── check_paper_abi.py # Paper binary-compatibility check (CI)
+│   │   └── live_smoke_test.py # End-to-end test against a live server
+│   ├── .mvn/wrapper/          # Maven Wrapper settings
+│   ├── mvnw, mvnw.cmd         # Maven Wrapper scripts
 │   ├── pom.xml                # Maven build config
 │   └── README.md
 │
@@ -35,8 +42,11 @@ minepy/
 │   ├── protocol.md
 │   └── development.md
 │
+├── examples/                   # Example scripts (basics, buildings, games, benchmarks)
+├── .github/workflows/ci.yml    # CI: plugin (Spigot + Paper API) and Python package
+├── CHANGELOG.md
+├── LICENSE
 ├── README.md                   # Main documentation
-├── example.py                  # Example scripts
 └── .gitignore
 ```
 
@@ -113,8 +123,8 @@ python -I scripts/check_paper_abi.py "$(which javap)" target/classes   ~/.m2/rep
 #### NMS fast path
 
 `NMSBlockPlacer` writes blocks straight into chunk sections for bulk `edit`
-calls. It reaches server internals through reflection only, resolved once at
-startup, so no BuildTools server jar is needed at compile time. Minecraft 26.1+
+calls. It reaches server internals through reflection only, resolved once on
+first use, so no BuildTools server jar is needed at compile time. Minecraft 26.1+
 ships unobfuscated, so the same Mojang names work on Paper and Spigot. If any
 lookup fails, the plugin logs a warning and falls back to the Bukkit API.
 
@@ -166,7 +176,7 @@ export MAVEN_OPTS="-Xmx1024m"
 ### Testing Integration
 
 1. Start Minecraft server with plugin
-2. Get token: `/mcpylib token`
+2. Get token: `/mcpylib token` (it is also printed in the console at startup)
 3. Run test script:
    ```python
    from mcpylib import MCPyLib
@@ -203,16 +213,21 @@ Python Client              Minecraft Server
      |            5. Build Response
      |                           |
      |  6. JSON Response         |
-     |  {success, data, error}   |
+     |  {success, data | error}  |
      |<--------------------------|
+     |                           |
+     |  (2-6 repeat on the same  |
+     |   persistent connection)  |
 ```
+
+See the [Protocol Documentation](protocol.md) for the wire format.
 
 ### Key Components
 
 #### Python Client (`client.py`)
 
 - **MCPyLib Class**: Main API interface
-- **_send_command()**: Handles TCP communication
+- **_send_command()**: Handles TCP communication over one persistent connection, reconnects when the server closed it, never re-sends after a timeout
 - **Custom Exceptions**: Error handling
 
 #### Server Plugin
@@ -223,21 +238,24 @@ Python Client              Minecraft Server
 - Manages configuration
 
 **NetworkServer.java**
-- TCP server implementation
-- Thread pool for connections
-- Connection management
+- TCP server bound to `server.host:server.port`
+- Thread pool with `server.max-connections` threads
+- Rejects connections beyond the limit with a `Server busy` error
 
 **ClientHandler.java**
-- Handles individual connections
-- JSON parsing
-- Token validation
-- Routes commands to handler
+- Handles one connection: reads newline-delimited requests until the client disconnects
+- Closes connections idle for `server.idle-timeout-seconds`
+- JSON parsing and token validation
+- Runs each command on the main thread (`callSyncMethod(...).get()`) and writes the response
 
 **CommandHandler.java**
-- Executes Minecraft commands
-- Thread-safe execution on main thread
-- Input validation
-- Error handling
+- One static `handleXxx` method per action, dispatched by `handleCommand()`
+- Always called on the server's main thread, so it can use the Bukkit API directly
+- Parameter checks and error messages
+
+**NMSBlockPlacer.java**
+- Fast path for `bulkEdit`: writes plain blocks directly into chunk sections
+- Resolved via reflection; falls back to the Bukkit API if unavailable
 
 **TokenManager.java**
 - Token generation (SecureRandom)
@@ -252,7 +270,7 @@ Update `docs/protocol.md`:
 
 ```json
 {
-  "action": "new_command",
+  "action": "newCommand",
   "params": {
     "param1": "value",
     "param2": 123
@@ -265,7 +283,7 @@ Update `docs/protocol.md`:
 Edit `MCPyLib/src/mcpylib/client.py`:
 
 ```python
-def new_command(self, param1: str, param2: int) -> Any:
+def newCommand(self, param1: str, param2: int) -> int:
     """
     Description of the command.
 
@@ -285,55 +303,68 @@ def new_command(self, param1: str, param2: int) -> Any:
         "param1": param1,
         "param2": param2
     }
-    return self._send_command("new_command", params)
+    return self._send_command("newCommand", params)
 ```
 
 ### 3. Implement Server Handler
 
-Edit `ServerPlugin/src/main/java/com/mcpylib/plugin/CommandHandler.java`:
+Edit `ServerPlugin/src/main/java/com/mcpylib/plugin/CommandHandler.java`.
+`handleCommand()` switches on the **lower-cased** action name, so the `case`
+label must be lower case:
 
 ```java
-public CommandResult execute(String action, JsonObject params) {
-    return switch (action) {
-        case "new_command" -> handleNewCommand(params);
-        // ... existing cases
-        default -> CommandResult.error("Unknown command: " + action);
-    };
+public static CommandResult handleCommand(MCPyLibPlugin plugin, String action, JsonObject params) {
+    try {
+        switch (action.toLowerCase()) {
+            // ... existing cases
+            case "newcommand":
+                return handleNewCommand(params);
+            default:
+                return CommandResult.error("Unknown action: " + action);
+        }
+    } catch (Exception e) {
+        return CommandResult.error("Error executing command: " + e.getMessage());
+    }
 }
 
-private CommandResult handleNewCommand(JsonObject params) {
+private static CommandResult handleNewCommand(JsonObject params) {
+    if (!params.has("param1") || !params.has("param2")) {
+        return CommandResult.error("Missing parameters: param1, param2");
+    }
+
+    String param1 = params.get("param1").getAsString();
+    int param2 = params.get("param2").getAsInt();
+
     try {
-        String param1 = params.get("param1").getAsString();
-        int param2 = params.get("param2").getAsInt();
-
-        // Execute on main thread
-        CompletableFuture<Result> future = new CompletableFuture<>();
-        Bukkit.getScheduler().runTask(plugin, () -> {
-            try {
-                // Your implementation here
-                Object result = doSomething(param1, param2);
-                future.complete(Result.success(result));
-            } catch (Exception e) {
-                future.complete(Result.error(e.getMessage()));
-            }
-        });
-
-        Result result = future.get(10, TimeUnit.SECONDS);
-        return result.isSuccess()
-            ? CommandResult.success(result.getData())
-            : CommandResult.error(result.getError());
-
+        // Already on the main thread: call the Bukkit API directly
+        World world = Bukkit.getWorlds().get(0);
+        int result = doSomething(world, param1, param2);
+        return CommandResult.success(result);
     } catch (Exception e) {
-        return CommandResult.error("Error: " + e.getMessage());
+        return CommandResult.error("Failed to run newCommand: " + e.getMessage());
     }
 }
 ```
+
+**Do not schedule work onto the main thread from a handler.** `ClientHandler`
+already runs every handler on the main thread via
+`Bukkit.getScheduler().callSyncMethod(...).get()`. Calling
+`Bukkit.getScheduler().runTask(...)` or `callSyncMethod(...)` again and then
+waiting for the result (`future.get()`) blocks the main thread on a task that
+can only run on the main thread: the server freezes and the watchdog
+eventually crashes it. To run a vanilla command, call
+`Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd)` directly, as
+`handleExec()` does.
+
+Return values are serialized with Gson. Null values are omitted from the JSON,
+so a map entry set to `null` is simply missing on the client side.
 
 ### 4. Update Documentation
 
 - Add to API reference
 - Add examples
 - Update README if needed
+- Add a CHANGELOG entry
 
 ## Configuration
 
@@ -369,6 +400,11 @@ logging:
   log-connections: true
   log-commands: true
 ```
+
+`/mcpylib reload` re-reads the file, but `server.port`, `server.host`,
+`server.max-connections` and the token are only applied at startup.
+`require-token`, the logging options and `idle-timeout-seconds` (for new
+connections) take effect after a reload.
 
 Access in Java:
 
@@ -407,7 +443,7 @@ public void testSetblock() {
 ### Integration Tests
 
 1. Start test server
-2. Run Python test suite
+2. Run `ServerPlugin/scripts/live_smoke_test.py` (see [Testing Integration](#testing-integration))
 3. Verify results in-game
 4. Check server logs
 
@@ -430,20 +466,22 @@ print(f"100 setblocks: {elapsed:.2f}s")
 start = time.time()
 mc.fill(0, 64, 0, 10, 74, 10, "stone")
 elapsed = time.time() - start
-print(f"Fill 1100 blocks: {elapsed:.2f}s")
+print(f"Fill 1331 blocks (11x11x11): {elapsed:.2f}s")
 ```
+
+`examples/benchmarks/fill_vs_edit.py` compares `fill()` and `edit()` on regions of several sizes.
 
 ## Dependencies
 
 ### Python Library
 
-**Runtime:** None (pure Python stdlib)
+**Runtime:** `python-dotenv>=1.2.4`. The client itself only uses the standard library; python-dotenv is there for loading `.env` files in scripts such as the examples.
 
-**Development:**
+**Build:**
 ```toml
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build>=0.11.1,<0.12.0"]
+build-backend = "uv_build"
 ```
 
 ### Server Plugin
@@ -456,6 +494,8 @@ build-backend = "setuptools.build_meta"
 ```xml
 <dependencies>
     <dependency>
+        <!-- spigot-api by default; the "paper" profile (-Ppaper) uses
+             io.papermc.paper:paper-api 26.3.build.257-stable instead -->
         <groupId>org.spigotmc</groupId>
         <artifactId>spigot-api</artifactId>
         <version>26.3-R0.1-SNAPSHOT</version>
@@ -464,10 +504,12 @@ build-backend = "setuptools.build_meta"
     <dependency>
         <groupId>com.google.code.gson</groupId>
         <artifactId>gson</artifactId>
-        <version>2.10.1</version>
+        <version>2.15.0</version>
     </dependency>
 </dependencies>
 ```
+
+Build plugins: maven-compiler-plugin 3.16.0 (`release` 25) and maven-shade-plugin 3.6.2.
 
 ## Version Management
 
@@ -475,24 +517,27 @@ Keep versions synchronized across:
 
 1. **Python:** `MCPyLib/pyproject.toml`
    ```toml
-   version = "0.1.0"
+   version = "1.2.0"
    ```
 
-2. **Java:** `ServerPlugin/pom.xml`
+2. **Python package:** `MCPyLib/src/mcpylib/__init__.py`
+   ```python
+   __version__ = "1.2.0"
+   ```
+
+3. **Java:** `ServerPlugin/pom.xml`
    ```xml
-   <version>0.1.0</version>
+   <version>1.2.0</version>
    ```
 
-3. **Plugin:** `ServerPlugin/src/main/resources/plugin.yml`
-   ```yaml
-   version: '0.1.0'
-   ```
+`ServerPlugin/src/main/resources/plugin.yml` does not need editing: its
+`version: '${project.version}'` is filled in from `pom.xml` at build time.
 
 ## Release Process
 
 ### 1. Update Version
 
-Update version in all three files above.
+Update the version in the files above, and add a section to `CHANGELOG.md`.
 
 ### 2. Build Both Components
 
@@ -513,8 +558,8 @@ Test both components together on test server.
 ### 4. Create Release
 
 ```bash
-git tag -a v0.1.0 -m "Release version 0.1.0"
-git push origin v0.1.0
+git tag -a v1.2.0 -m "Release version 1.2.0"
+git push origin v1.2.0
 ```
 
 ### 5. Distribute
@@ -559,27 +604,23 @@ test: Add integration tests for fill command
 
 ### Current Bottlenecks
 
-1. **New connection per command** - Consider connection pooling
-2. **Synchronous execution** - Commands wait for server main thread
-3. **JSON parsing overhead** - Minimal with Gson
+1. **Synchronous execution** - Every command waits for the server main thread, and commands from all clients run one after another
+2. **One request at a time per connection** - Each command is a full network round trip
+3. **Large responses** - `getblocks` returns one string per block, uncompressed
+4. **JSON parsing overhead** - Minimal with Gson
 
 ### Optimization Opportunities
 
-1. **Persistent Connections**
-   - Reuse TCP connections
-   - Implement connection pooling
-   - Reduce connection overhead
-
-2. **Batch Commands**
+1. **Batch Commands**
    - Multiple commands in single request
    - Reduce network round trips
 
-3. **Async Python API**
+2. **Async Python API**
    - Non-blocking operations
    - Better for concurrent scripts
 
-4. **Protocol Compression**
-   - Reduce bandwidth for large operations
+3. **Response Compression**
+   - Compress large replies such as `getblocks` (bulk `edit` requests are already compressed)
 
 ## Security Considerations
 
@@ -589,22 +630,26 @@ test: Add integration tests for fill command
 - Use environment variables
 - Never commit tokens to git
 - Rotate tokens regularly
+- Remember that a token grants console-level access through `exec`
 
 ### Network Security
 
 - Bind to localhost for local-only access
 - Use firewall rules
-- Consider SSL/TLS proxy
+- Use an SSH tunnel or VPN across untrusted networks (traffic is not encrypted)
 - Limit max connections
 
 ### Input Validation
 
 Server validates:
 - Token authentication
-- Parameter types
-- Coordinate bounds
-- Block types
-- Usernames
+- Presence of required parameters
+- Block, item, entity and other registry names
+- UUID format and a few value ranges
+
+It does not check coordinate bounds or player permissions (the `mcpylib.use`
+permission declared in `plugin.yml` is not enforced). Wrongly typed parameters
+fail with `Error executing command: ...`.
 
 ## Future Enhancements
 
@@ -613,8 +658,8 @@ Server validates:
 - [ ] WebSocket support
 - [ ] Event subscriptions
 - [ ] Batch command execution
-- [ ] Connection pooling
-- [x] More Minecraft operations (71 commands in v1.1.0)
+- [x] Persistent connections (v1.2.0)
+- [x] More Minecraft operations (72 commands in v1.2.0)
 - [x] Player inventory management (getItem, setItem, clear, enchant)
 - [x] Entity manipulation (damage, ride, attribute, tags)
 - [x] World management (worldborder, forceload, fillbiome, place)
@@ -644,4 +689,4 @@ Consider protocol versioning for future changes:
 - [Installation Guide](installation.md)
 - [API Reference](api-reference.md)
 - [Protocol Documentation](protocol.md)
-- [Main README](../README.md)
+- [Main README](https://github.com/treeleaves30760/MCPyLib#readme)

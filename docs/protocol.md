@@ -9,6 +9,7 @@ MCPyLib uses a simple request-response protocol over TCP:
 - Each message is terminated with a newline character (`\n`)
 - UTF-8 encoding
 - Default port: 65535
+- Connections are persistent: a client can send any number of requests over one connection. Each request gets exactly one response line, in order
 
 ## Connection Flow
 
@@ -21,15 +22,32 @@ Client                          Server
   |  2. Send JSON Request         |
   |------------------------------>|
   |                               |
-  |       3. Authenticate         |
-  |       4. Execute Command      |
-  |       5. Build Response       |
+  |       3. Check token          |
+  |       4. Execute command on   |
+  |          the main thread      |
+  |       5. Build response       |
   |                               |
   |  6. Receive JSON Response     |
   |<------------------------------|
   |                               |
+  |  Repeat 2-6 on the same       |
+  |  connection as often as       |
+  |  needed                       |
+  |                               |
   |  7. Close Connection          |
   |------------------------------>|
+```
+
+Send one request, then wait for its response before sending the next one.
+
+The server closes a connection by itself when:
+- no request arrived for `server.idle-timeout-seconds` (default 300; `0` disables the timeout). The Python client notices this and reconnects on its next command.
+- a request is valid JSON but has the wrong structure, for example `params` is not an object. The connection is dropped without a reply.
+
+When all `server.max-connections` slots (default 10) are in use, the server still accepts a new connection, reads its first request line (waiting up to 2 seconds for it), replies with a busy error and closes it:
+
+```json
+{"success":false,"error":"Server busy: max-connections (10) reached. Close unused clients or raise server.max-connections.","data":null}
 ```
 
 ## Message Format
@@ -49,36 +67,30 @@ All requests follow this structure:
 ```
 
 **Fields:**
-- `token` (string): Authentication token for security
-- `action` (string): Command to execute (see [All Supported Actions](#all-supported-actions) for the full list)
-- `params` (object): Command-specific parameters
+- `token` (string): Authentication token, checked on every request
+- `action` (string): Command to execute (see [All Supported Actions](#all-supported-actions) for the full list). Action names are case-insensitive: `getPos`, `getpos` and `GETPOS` are the same action
+- `params` (object, optional): Command-specific parameters. A missing `params` is treated as `{}`
 
 ### Response Message
 
-All responses follow this structure:
+A successful response carries `data`:
 
 ```json
-{
-  "success": true,
-  "data": "result_data",
-  "error": null
-}
+{"success": true, "data": "result_data"}
 ```
 
-Or on error:
+An error response carries `error`:
 
 ```json
-{
-  "success": false,
-  "data": null,
-  "error": "error_message"
-}
+{"success": false, "error": "error_message"}
 ```
 
 **Fields:**
 - `success` (boolean): Whether the command succeeded
-- `data` (any): Result data (type depends on command)
-- `error` (string|null): Error message if failed, null otherwise
+- `data` (any): Result data, only present on success (type depends on command)
+- `error` (string): Error message, only present on failure
+
+The server leaves out null values: a success response has no `error` key and an error response has no `data` key (the hand-written `Server busy` reply is the one exception and includes `"data":null`). The same applies inside `data`: object fields whose value would be null are omitted, for example `custom_name` in `getEntityStatus` for an entity without a custom name, or empty slots in `getEntityEquipment`.
 
 ## Commands
 
@@ -95,7 +107,8 @@ Place a block at specified coordinates.
     "x": 100,
     "y": 64,
     "z": 200,
-    "block": "minecraft:stone"
+    "block": "minecraft:oak_stairs",
+    "block_state": {"facing": "north", "half": "top"}
   }
 }
 ```
@@ -104,14 +117,15 @@ Place a block at specified coordinates.
 - `x` (integer): X coordinate
 - `y` (integer): Y coordinate
 - `z` (integer): Z coordinate
-- `block` (string): Block type identifier
+- `block` (string): Block type identifier (`minecraft:` prefix optional)
+- `block_state` (object, optional): Block state properties; every vanilla property is accepted
+- `nbt` (object, optional): Block entity data. Only `CustomName` (plain text, containers) and `Text1`-`Text4` (sign lines) are applied
 
 **Response (Success):**
 ```json
 {
   "success": true,
-  "data": 1,
-  "error": null
+  "data": 1
 }
 ```
 
@@ -119,7 +133,6 @@ Place a block at specified coordinates.
 ```json
 {
   "success": false,
-  "data": null,
   "error": "Invalid block type: minecraft:invalid"
 }
 ```
@@ -150,8 +163,7 @@ Get the block type at specified coordinates.
 ```json
 {
   "success": true,
-  "data": "minecraft:stone",
-  "error": null
+  "data": "minecraft:stone"
 }
 ```
 
@@ -159,8 +171,7 @@ Get the block type at specified coordinates.
 ```json
 {
   "success": false,
-  "data": null,
-  "error": "Coordinates out of world bounds"
+  "error": "Missing parameters: x, y, z"
 }
 ```
 
@@ -193,6 +204,9 @@ Get all blocks in a rectangular region as a 3D array.
 - `z2` (integer): Ending Z coordinate
 
 **Response (Success):**
+
+The array is indexed `[x][y][z]`, starting at the minimum corner. Both corners are included, so this 3x2x3 region has 3 x-layers with 2 y-rows of 3 blocks each:
+
 ```json
 {
   "success": true,
@@ -209,8 +223,7 @@ Get all blocks in a rectangular region as a 3D array.
       ["minecraft:stone", "minecraft:dirt", "minecraft:dirt"],
       ["minecraft:air", "minecraft:air", "minecraft:air"]
     ]
-  ],
-  "error": null
+  ]
 }
 ```
 
@@ -218,7 +231,6 @@ Get all blocks in a rectangular region as a 3D array.
 ```json
 {
   "success": false,
-  "data": null,
   "error": "Missing parameters: x1, y1, z1, x2, y2, z2"
 }
 ```
@@ -253,19 +265,17 @@ Fill a rectangular region with blocks.
 ```json
 {
   "success": true,
-  "data": 1210,
-  "error": null
+  "data": 1331
 }
 ```
 
-The `data` field contains the number of blocks affected.
+The `data` field contains the number of blocks affected (11 x 11 x 11 = 1331; both corners are included). `fill` has no size limit.
 
 **Response (Error):**
 ```json
 {
   "success": false,
-  "data": null,
-  "error": "Region too large (max 32768 blocks)"
+  "error": "Invalid block type: brick (this is an item, not a placeable block)"
 }
 ```
 
@@ -285,14 +295,13 @@ Get a player's current position.
 ```
 
 **Parameters:**
-- `username` (string): Player's Minecraft username (case-sensitive)
+- `username` (string): Player's Minecraft username (full name, case-insensitive)
 
 **Response (Success):**
 ```json
 {
   "success": true,
-  "data": [100, 64, 200],
-  "error": null
+  "data": [100, 64, 200]
 }
 ```
 
@@ -302,14 +311,13 @@ The `data` field contains an array of `[x, y, z]` coordinates as integers.
 ```json
 {
   "success": false,
-  "data": null,
   "error": "Player not found: Steve"
 }
 ```
 
 ### All Supported Actions
 
-The following table lists all supported actions and their parameters:
+The following table lists all 72 supported actions and their parameters:
 
 | Action | Parameters | Response Data |
 |--------|-----------|---------------|
@@ -317,14 +325,16 @@ The following table lists all supported actions and their parameters:
 | `getblock` | `x`, `y`, `z` | Block type string |
 | `getblocks` | `x1`, `y1`, `z1`, `x2`, `y2`, `z2` | 3D array of block type strings `[x][y][z]` |
 | `fill` | `x1`, `y1`, `z1`, `x2`, `y2`, `z2`, `block` | Blocks affected (int) |
-| `clone` | `x1`, `y1`, `z1`, `x2`, `y2`, `z2`, `dest_x`, `dest_y`, `dest_z` | Blocks cloned (int) |
+| `clone` | `x1`, `y1`, `z1`, `x2`, `y2`, `z2`, `dest_x`, `dest_y`, `dest_z` | Blocks cloned (int); max 32768 |
 | `bulkEdit` | `x`, `y`, `z`, `blocks` (3D array) OR compressed format (see below) | Blocks placed (int) |
 | `getPos` | `username` | `[x, y, z]` array |
 | `teleport` | `username`, `x`, `y`, `z`, `yaw?`, `pitch?` | `true` |
 | `gamemode` | `username`, `mode` | `true` |
-| `give` | `username`, `item`, `amount` | `true` |
-| `exec` | `command` | `true` |
-| `effect` | `username`, `effect`, `duration?`, `amplifier?`, `hide_particles?` | `true` |
+| `give` | `username`, `item`, `amount?` (1-64, default 1) | `true` |
+| `time` | `action` (`set`/`add`/`query`), `value?` | Current time (int) |
+| `weather` | `condition` (`clear`/`rain`/`thunder`), `duration?` (seconds) | `true` |
+| `exec` | `command` | `true`, or `false` if the command does not exist |
+| `effect` | `username`, `effect`, `duration?` (seconds), `amplifier?`, `hide_particles?` | `true`/`false` |
 | `clearEffect` | `username`, `effect?` | `true` |
 | `clear` | `username`, `item?`, `max_count?` | Items removed (int) |
 | `experience` | `username`, `action`, `amount`, `target?` | `{level, points, progress}` |
@@ -332,20 +342,20 @@ The following table lists all supported actions and their parameters:
 | `gamerule` | `rule`, `value?` | Current value (string) |
 | `say` | `message` | `true` |
 | `tell` | `username`, `message` | `true` |
-| `tellraw` | `username`, `json_text` | `true` |
+| `tellraw` | `username`, `json_text` | `true`/`false` (dispatch result) |
 | `title` | `username`, `title?`, `subtitle?`, `fade_in?`, `stay?`, `fade_out?` | `true` |
 | `playsound` | `username`, `sound`, `source?`, `x?`, `y?`, `z?`, `volume?`, `pitch?` | `true` |
 | `stopsound` | `username`, `sound?`, `source?` | `true` |
 | `particle` | `particle`, `x`, `y`, `z`, `count?`, `dx?`, `dy?`, `dz?`, `speed?` | `true` |
 | `spawnpoint` | `username`, `x?`, `y?`, `z?` | `true` |
-| `setWorldSpawn` | `x`, `y`, `z` | `true` |
+| `setWorldSpawn` | `x`, `y`, `z` | `true`/`false` |
 | `worldborder` | `action`, `value?`, `time?`, `x?`, `z?` | Border info (dict) |
-| `forceload` | `action`, `x`, `z` | `true`/`false` |
+| `forceload` | `action` (`add`/`remove`/`query`), `x`, `z` (block coordinates) | `true`/`false` |
 | `summon` | `entity_type`, `x`, `y`, `z` | Entity UUID (string) |
-| `kill` | `selector` | Entities killed (int) |
+| `kill` | `selector` (`all`, an entity type, or `player:<name>`) | Entities removed (int) |
 | `getEntityPos` | `uuid` | `{x, y, z, yaw, pitch}` |
 | `getEntityStatus` | `uuid` | Entity status (dict) |
-| `teleportEntity` | `uuid`, `x`, `y`, `z`, `yaw?`, `pitch?` | `true` |
+| `teleportEntity` | `uuid`, `x`, `y`, `z`, `yaw?`, `pitch?` | `true`/`false` |
 | `setEntityVelocity` | `uuid`, `vx`, `vy`, `vz` | `true` |
 | `setEntityRotation` | `uuid`, `yaw`, `pitch` | `true` |
 | `setEntityAI` | `uuid`, `enabled` | `true` |
@@ -354,8 +364,8 @@ The following table lists all supported actions and their parameters:
 | `getEntityEquipment` | `uuid` | Equipment slots (dict) |
 | `setEntityEquipment` | `uuid`, `equipment`, `drop_chances?` | `true` |
 | `damage` | `uuid`, `amount`, `source_uuid?` | `true` |
-| `ride` | `passenger_uuid`, `vehicle_uuid?` | `true` |
-| `attribute` | `uuid`, `attribute`, `action?`, `value?` | `{base_value, value}` |
+| `ride` | `passenger_uuid`, `vehicle_uuid?` | `true`/`false` |
+| `attribute` | `uuid`, `attribute`, `action?` (`get`/`set`), `value?` | `{base_value, value}` |
 | `addTag` | `uuid`, `tag` | `true`/`false` |
 | `removeTag` | `uuid`, `tag` | `true`/`false` |
 | `getTags` | `uuid` | Tags list |
@@ -374,17 +384,23 @@ The following table lists all supported actions and their parameters:
 | `setItem` | `username`, `slot`, `item`, `amount?` | `true` |
 | `locate` | `structure`, `x?`, `z?` | `{found, x?, y?, z?}` |
 | `advancement` | `username`, `action`, `advancement` | `true`/`false` |
-| `loot` | `loot_table`, `x`, `y`, `z` | Items generated (int) |
-| `fillbiome` | `x1`, `y1`, `z1`, `x2`, `y2`, `z2`, `biome`, `filter_biome?` | `true` |
-| `placeFeature` | `feature`, `x?`, `y?`, `z?` | `true` |
-| `placeStructure` | `structure`, `x?`, `y?`, `z?` | `true` |
-| `placeJigsaw` | `pool`, `target`, `max_depth`, `x?`, `y?`, `z?` | `true` |
-| `placeTemplate` | `template`, `x?`, `y?`, `z?`, `rotation?`, `mirror?`, `integrity?`, `seed?` | `true` |
-| `spreadplayers` | `center_x`, `center_z`, `spread_distance`, `max_range`, `usernames` | `true` |
+| `loot` | `loot_table`, `x`, `y`, `z` | Item stacks dropped (int) |
+| `fillbiome` | `x1`, `y1`, `z1`, `x2`, `y2`, `z2`, `biome`, `filter_biome?` | `true`/`false` (dispatch result) |
+| `placeFeature` | `feature`, `x?`, `y?`, `z?` | `true`/`false` (dispatch result) |
+| `placeStructure` | `structure`, `x?`, `y?`, `z?` | `true`/`false` (dispatch result) |
+| `placeJigsaw` | `pool`, `target`, `max_depth`, `x?`, `y?`, `z?` | `true`/`false` (dispatch result) |
+| `placeTemplate` | `template`, `x?`, `y?`, `z?`, `rotation?`, `mirror?`, `integrity?`, `seed?` | `true`/`false` (dispatch result) |
+| `spreadplayers` | `center_x`, `center_z`, `spread_distance`, `max_range`, `usernames` | `true`/`false` (dispatch result) |
 | `defaultgamemode` | `mode` | `true` |
 | `list` | (none) | `{online_count, max_players, players}` |
 
-*Parameters marked with `?` are optional.*
+*Parameters marked with `?` are optional. The [API Reference](api-reference.md) describes each command in detail.*
+
+**Notes:**
+- Commands that are not tied to a player or entity (block commands, `summon`, `kill`, `particle`, `time`, `weather`, `worldborder`, `forceload`, ...) act on the server's main world, the first world loaded (normally the overworld).
+- "Dispatch result" means the plugin runs a vanilla command as the console: `true` only says the command was found and run. Vanilla errors such as "No player was found" or "That position is not loaded" appear in the server console, not in the response. `exec` behaves the same way.
+- `getPos`, `teleport`, `gamemode`, `give` and `kill` (`player:<name>`) need the full player name; the other player actions also accept the start of a name. Matching is case-insensitive.
+- Entities can only be found by UUID while their chunk is loaded (use `forceload` when no player is nearby).
 
 ### bulkEdit (Compressed Format)
 
@@ -427,8 +443,12 @@ The `bulkEdit` command supports an optimized compressed encoding that drasticall
 5. zlib compress the string
 6. Base64 encode the compressed bytes
 
+The response `data` is the number of blocks placed; `null` positions are not counted.
+
 **Format Detection:**
-The server detects the format by checking for the `encoding` field. If absent, the legacy 3D JSON array format is used (backward compatible).
+The server detects the format by checking for the `encoding` field. If absent, the legacy format is used (backward compatible): `blocks` is a 3D JSON array `[x][y][z]` whose entries are `null`, a block name string, or an object with `block`, optional `block_state` and optional `nbt`.
+
+**Errors:** `Unsupported encoding: <name>`, `Invalid block type in palette[<i>]: <name>`, `Missing 'block' field in palette[<i>]`, `Invalid compressed block data (truncated or corrupt)`, and `Compressed block data expands beyond 256 MB`.
 
 **Performance:**
 When the server internals can be reached (resolved once at runtime via reflection, so no server jar is needed at build time; Minecraft 26.1+ ships unobfuscated so this works on both Paper and Spigot), the server uses direct chunk section writes for plain material blocks, bypassing Bukkit API overhead. Complex blocks with `block_state` or `nbt` fall back to Bukkit API. If NMS is unavailable, all blocks use Bukkit API.
@@ -437,33 +457,38 @@ When the server internals can be reached (resolved once at runtime via reflectio
 
 ### Error Types
 
-The server can return various error messages:
+The server returns these error messages (exact text, with the parts in `<>` filled in):
 
-**Authentication Errors:**
-- `Invalid token` - Token is incorrect or missing
-- `Token required` - Authentication is enabled but no token provided
+**Request Errors:**
+- `Invalid JSON` - The request line is not valid JSON. The connection stays open
+- `Invalid token` - Token is incorrect or missing. The connection stays open
+- `Unknown action: <action>` - Invalid action specified
+- `Server busy: max-connections (<n>) reached. Close unused clients or raise server.max-connections.` - No free connection slot (see [Connection Flow](#connection-flow))
 
-**Command Errors:**
-- `Unknown command: [action]` - Invalid action specified
-- `Missing required parameter: [param]` - Required parameter not provided
-- `Invalid parameter type: [param]` - Parameter has wrong type
+**Parameter Errors:**
+- `Missing parameter: <name>` or `Missing parameters: <name>, <name>, ...` - A required parameter was not provided (the message lists the action's required parameters)
+- `Error executing command: <details>` - An unexpected exception, usually a parameter of the wrong type (e.g. `Error executing command: For input string: "abc"`)
 
-**Execution Errors:**
-- `Player not found: [username]` - Player is offline or doesn't exist
-- `Invalid block type: [block]` - Block type doesn't exist
-- `Coordinates out of world bounds` - Coordinates are invalid
-- `Region too large` - Fill region exceeds size limit
+**Execution Errors (examples):**
+- `Player not found: <username>` - Player is offline or doesn't exist
+- `Entity not found: <uuid>` / `Invalid UUID format: <uuid>`
+- `Invalid block type: <block>` - Block type doesn't exist; item ids get the suffix ` (this is an item, not a placeable block)`
+- `Failed to set block state: Unsupported property '<key>=<value>' for <block>`
+- `Region too large (max 32768 blocks): <volume>` - `clone` source region exceeds the limit
+- `Invalid action: <action> (valid: ...)` - Unknown sub-action for actions such as `time`, `team` or `worldborder`
+- `Failed to <operation>: <details>` - The command failed while running
 
 ### Client Error Handling
 
 The Python client maps server errors to exceptions:
 
 ```
-"Invalid token" -> AuthenticationError
-"Token required" -> AuthenticationError
-Connection failed -> ConnectionError
-Other errors -> CommandError
+Error text contains "token" (any case)       -> AuthenticationError
+Any other error response                     -> CommandError
+Connection failed, closed, or timed out      -> ConnectionError
 ```
+
+The client re-sends a request once only when a reused connection turns out to be closed before any byte of the reply arrived (for example after an idle timeout). A timed-out request is never re-sent, because it may already have run on the server.
 
 ## Authentication
 
@@ -483,9 +508,11 @@ Every request must include a valid authentication token:
 
 Tokens are generated by the server plugin:
 - 32 random bytes
-- Base64 URL-encoded
-- Stored in `config.yml`
-- Retrieved with `/mcpylib token`
+- Base64 URL-encoded (43 characters, no padding)
+- Generated on first start when `security.token` is empty, stored in `config.yml`, and printed in the server console (`Authentication token: ...`)
+- Shown with `/mcpylib token`; replaced with `/mcpylib token regenerate` (the old token stops working immediately)
+
+The plugin loads the token at startup. If you change `security.token` in `config.yml` by hand, restart the server: `/mcpylib reload` does not reload the token.
 
 ### Disabling Authentication
 
@@ -496,6 +523,8 @@ security:
   require-token: false
 ```
 
+This setting is read on every request, so it takes effect after `/mcpylib reload`.
+
 **Warning:** Only disable authentication in trusted environments.
 
 ## Network Details
@@ -503,48 +532,53 @@ security:
 ### Connection Settings
 
 - **Protocol:** TCP
-- **Default Port:** 65535
-- **Default Host:** `0.0.0.0` (all interfaces)
+- **Default Port:** 65535 (`server.port`)
+- **Default Host:** `0.0.0.0` (all interfaces; `server.host: 127.0.0.1` accepts local clients only)
 - **Encoding:** UTF-8
 - **Message Delimiter:** Newline (`\n`)
+- **Max Concurrent Connections:** 10 (`server.max-connections`)
+- **Idle Timeout:** 300 seconds (`server.idle-timeout-seconds`, `0` = never)
+
+`server.port`, `server.host` and `server.max-connections` are only read when the plugin starts: restart the server after changing them.
 
 ### Connection Lifecycle
 
-Each command creates a new connection:
+Connections are persistent:
 
 1. Client opens TCP connection
 2. Client sends JSON request + newline
 3. Server processes request
 4. Server sends JSON response + newline
-5. Connection closed
+5. Steps 2-4 repeat on the same connection
+6. The client closes the connection, or the server closes it after the idle timeout
+
+The Python client opens the connection with its first command, reuses it for all further commands, and reconnects transparently when it finds the connection closed.
 
 ### Timeouts
 
-- **Client Timeout:** Default 10 seconds (configurable)
-- **Server Timeout:** Per connection configured in plugin
+- **Client Timeout:** Default 10 seconds per socket operation (the `timeout` argument). On timeout the client raises `ConnectionError` and closes the connection
+- **Server Idle Timeout:** `server.idle-timeout-seconds` (default 300). The plugin puts no time limit on a single command
 
 ## Performance Considerations
 
 ### Command Execution
 
-- Commands execute on server's main thread
+- Each connection is served by its own thread, but every command executes on the server's main thread
 - Ensures thread-safety with Bukkit API
+- Commands from all clients run one after another; a long command (a huge `fill`, a large `getblocks`) pauses the server and makes other clients wait
 - May have slight latency during high server load
 
 ### Large Operations
 
-- `fill` command has size limits to prevent server lag
-- Consider breaking large operations into smaller chunks
-- Use `fill` instead of multiple `setblock` calls for better performance
+- `fill` has no size limit, so very large fills can stall the server for a while: split them or use `bulkEdit`
+- `clone` is limited to 32,768 blocks
+- `bulkEdit` (`edit()` in Python) is the fastest way to place many blocks
+- `getblocks` returns one string per block, so large regions produce large responses
+- Use `fill` or `bulkEdit` instead of many `setblock` calls for better performance
 
-### Connection Pooling
+### Persistent Connections
 
-Current implementation creates new connection per command:
-- Simple and reliable
-- Some overhead for connection setup
-- Sufficient for most use cases
-
-Future versions may implement persistent connections for better performance.
+The client keeps its connection open between commands, which avoids a TCP handshake per command. Each open connection occupies one of the `max-connections` slots until it is closed or times out, so close clients you no longer need (`mc.close()` or a `with` block).
 
 ## Security Considerations
 
@@ -554,31 +588,35 @@ Future versions may implement persistent connections for better performance.
 - Regenerate tokens periodically
 - Never commit tokens to version control
 - Use environment variables for tokens
+- Treat the token like a server console password: with `exec` it can run any command
 
 ### Network Security
 
 - Bind to `127.0.0.1` for local-only access
 - Use firewall rules to restrict access
-- Consider running behind reverse proxy for SSL/TLS
+- Traffic is plain TCP and not encrypted; across untrusted networks use an SSH tunnel or a VPN
 - Limit `max-connections` in config
+- The `mcpylib.use` permission in `plugin.yml` is not checked: API access is controlled by the token alone
 
 ### Input Validation
 
-Server validates all inputs:
-- Token authentication
-- Parameter type checking
-- Coordinate bounds checking
-- Block type validation
-- Username validation
+The server checks:
+- The token, on every request
+- That required parameters are present
+- Names of blocks, items, entity types, effects, enchantments, attributes, particles and similar (unknown names are rejected; sound names are not checked)
+- UUID format
+- A few ranges: `time set` (0-24000), `give` amount (1-64), `clone` volume (32,768 blocks), inventory slot index; entity velocity is clamped to ±10 and boss bar progress to 0-1
+
+It does not check coordinate bounds or player permissions. A parameter of the wrong type fails with `Error executing command: ...`.
 
 ## Future Enhancements
 
 Potential protocol improvements:
 
-- **WebSocket Support** - Persistent bidirectional connections
+- **WebSocket Support** - Bidirectional connections, e.g. for browser clients
 - **Batch Commands** - Multiple commands in single request
 - **Event Subscriptions** - Server-initiated messages for events
-- **Compression** - Reduce bandwidth for large operations
+- **Compression for Responses** - Smaller `getblocks` replies (requests from `bulkEdit` are already compressed)
 - **SSL/TLS** - Encrypted connections
 - **Protocol Versioning** - Support for protocol evolution
 
@@ -586,66 +624,76 @@ Potential protocol improvements:
 
 ### Python Client Example
 
+A minimal client that keeps one connection open and sends several requests over it:
+
 ```python
-import socket
 import json
+import socket
 
-def send_command(ip, port, token, action, params):
-    # Create socket
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(10.0)
+class SimpleClient:
+    def __init__(self, ip, port, token):
+        self.token = token
+        self.sock = socket.create_connection((ip, port), timeout=10.0)
+        self.reader = self.sock.makefile("r", encoding="utf-8")
 
-    try:
-        # Connect
-        sock.connect((ip, port))
+    def send(self, action, params=None):
+        request = {"token": self.token, "action": action, "params": params or {}}
+        self.sock.sendall((json.dumps(request) + "\n").encode("utf-8"))
+        line = self.reader.readline()  # exactly one response line per request
+        if not line:
+            raise ConnectionError("Connection closed by server")
+        response = json.loads(line)
+        if not response["success"]:
+            raise RuntimeError(response["error"])
+        return response.get("data")
 
-        # Build request
-        request = {
-            "token": token,
-            "action": action,
-            "params": params
-        }
+    def close(self):
+        self.reader.close()
+        self.sock.close()
 
-        # Send request
-        message = json.dumps(request) + "\n"
-        sock.sendall(message.encode('utf-8'))
-
-        # Receive response
-        response = sock.recv(4096).decode('utf-8')
-        result = json.loads(response)
-
-        return result
-
-    finally:
-        sock.close()
+client = SimpleClient("127.0.0.1", 65535, "your_token")
+client.send("setblock", {"x": 100, "y": 64, "z": 200, "block": "minecraft:stone"})
+print(client.send("getblock", {"x": 100, "y": 64, "z": 200}))  # minecraft:stone
+client.close()
 ```
+
+Reading until the newline matters: responses such as `getblocks` can be much larger than a single `recv()`.
 
 ### Java Server Example
 
+The plugin's `ClientHandler` (simplified):
+
 ```java
-// Parse request
-JsonObject request = JsonParser.parseString(line).getAsJsonObject();
-String token = request.get("token").getAsString();
-String action = request.get("action").getAsString();
-JsonObject params = request.getAsJsonObject("params");
+// One thread per connection: handle requests until the client disconnects
+String line;
+while ((line = in.readLine()) != null) {
+    JsonObject request = gson.fromJson(line, JsonObject.class);  // "Invalid JSON" on failure
 
-// Validate token
-if (!tokenManager.validateToken(token)) {
-    return errorResponse("Invalid token");
+    // Validate token
+    String token = request.has("token") ? request.get("token").getAsString() : "";
+    if (!tokenManager.validateToken(token)) {
+        sendError(out, "Invalid token");
+        continue;  // the connection stays open
+    }
+
+    String action = request.has("action") ? request.get("action").getAsString() : "";
+    JsonObject params = request.has("params") ? request.getAsJsonObject("params") : new JsonObject();
+
+    // Execute the command on the server's main thread and wait for the result
+    CommandResult result = Bukkit.getScheduler()
+            .callSyncMethod(plugin, () -> CommandHandler.handleCommand(plugin, action, params))
+            .get();
+
+    // Build response (Gson leaves out null values)
+    JsonObject response = new JsonObject();
+    response.addProperty("success", result.isSuccess());
+    if (result.isSuccess()) {
+        response.add("data", gson.toJsonTree(result.getData()));
+    } else {
+        response.addProperty("error", result.getError());
+    }
+    out.println(gson.toJson(response));
 }
-
-// Execute command
-CommandResult result = commandHandler.execute(action, params);
-
-// Build response
-JsonObject response = new JsonObject();
-response.addProperty("success", result.isSuccess());
-response.add("data", result.getData());
-response.addProperty("error", result.getError());
-
-// Send response
-writer.write(response.toString() + "\n");
-writer.flush();
 ```
 
 ## See Also

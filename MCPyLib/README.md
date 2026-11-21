@@ -77,13 +77,16 @@ mc.setblock(100, 64, 200, "minecraft:diamond_block")
 block = mc.getblock(100, 64, 200)
 print(f"Block: {block}")  # Output: Block: minecraft:diamond_block
 
-# Fill a 10x10x10 region with glass
+# Fill an 11x11x11 region with glass (both corners are included)
 count = mc.fill(0, 60, 0, 10, 70, 10, "minecraft:glass")
-print(f"Filled {count} blocks")
+print(f"Filled {count} blocks")  # Output: Filled 1331 blocks
 
 # Get player position
 pos = mc.getPos("Steve")
 print(f"Player at: {pos}")  # Output: Player at: [100, 64, 200]
+
+# Close the connection when you are done
+mc.close()
 ```
 
 ### Run the script
@@ -112,7 +115,18 @@ MCPyLib(ip="127.0.0.1", port=65535, token="", timeout=10.0)
 - `token` (str): Authentication token from server
 - `timeout` (float): Socket timeout in seconds
 
+The client opens one TCP connection on the first command and reuses it for every later command. If the server closed it (for example after a restart or the server's idle timeout), the next command reconnects automatically. A command that times out raises `ConnectionError` and is not sent again, because it may still have run on the server.
+
+Call `close()` when you are done, or use the client as a context manager:
+
+```python
+with MCPyLib(token="your_token") as mc:
+    mc.setblock(100, 64, 200, "minecraft:stone")
+```
+
 #### Methods
+
+This page covers the core methods. The client has 72 commands in total (effects, inventory, entities, villagers, scoreboards, teams, boss bars, world generation and more); see the [full API reference](https://github.com/treeleaves30760/MCPyLib/blob/main/docs/api-reference.md).
 
 ##### setblock()
 
@@ -124,9 +138,9 @@ Set a block at the specified coordinates with optional block state and NBT data.
 
 **Parameters:**
 - `x`, `y`, `z` (int): Block coordinates
-- `block_name` (str): Block type (e.g., "minecraft:stone" or "stone")
-- `block_state` (dict, optional): Block state properties like direction, rotation, etc.
-- `nbt` (dict, optional): NBT data for block entities (signs, chests, etc.)
+- `block_name` (str): Block type (e.g., "minecraft:stone" or "stone"). Item ids that are not blocks (such as "brick") are rejected.
+- `block_state` (dict, optional): Block state properties like direction, rotation, etc. Every vanilla property is supported.
+- `nbt` (dict, optional): Block entity data. Only `"CustomName"` (plain-text name for containers such as chests) and `"Text1"`-`"Text4"` (sign lines) are applied; other keys are ignored.
 
 **Returns:**
 - `1` if successful
@@ -157,25 +171,33 @@ mc.setblock(100, 64, 204, "oak_sign",
     nbt={"Text1": "Hello", "Text2": "World", "Text3": "", "Text4": ""}
 )
 
-# Place a chest with custom name
+# Place a chest with custom name (plain text)
 mc.setblock(100, 64, 205, "chest",
     block_state={"facing": "north"},
-    nbt={"CustomName": '{"text":"My Chest"}'}
+    nbt={"CustomName": "My Chest"}
 )
 
 # Place a waterlogged fence
 mc.setblock(100, 64, 206, "oak_fence", block_state={"waterlogged": "true"})
+
+# Place a door: upper half first, then the lower half
+mc.setblock(100, 65, 207, "oak_door", block_state={"facing": "south", "half": "upper"})
+mc.setblock(100, 64, 207, "oak_door", block_state={"facing": "south", "half": "lower"})
 ```
 
-**Common Block State Properties:**
+**Common Block State Properties** (any vanilla property works):
 - `facing`: Direction the block faces ("north", "south", "east", "west", "up", "down")
 - `rotation`: Rotation for signs and banners ("0" to "15")
 - `axis`: Axis for logs and pillars ("x", "y", "z")
-- `half`: Upper or lower half ("top", "bottom")
-- `shape`: Stair shape ("straight", "inner_left", "inner_right", "outer_left", "outer_right")
+- `half`: "top"/"bottom" for stairs and trapdoors, "upper"/"lower" for doors and tall plants
+- `type`: Slab type ("top", "bottom", "double")
+- `part`: Bed part ("head", "foot")
+- `shape`: Stair shape ("straight", "inner_left", "inner_right", "outer_left", "outer_right"); the game recalculates it when neighboring blocks change
 - `open`: Whether doors/gates are open ("true", "false")
 - `powered`: Whether redstone components are powered ("true", "false")
 - `waterlogged`: Whether block contains water ("true", "false")
+
+For two-block blocks, place both halves: a door's upper half before its lower half, a bed's head before its foot. In the other order the server's block update breaks the half placed first.
 
 ##### getblock()
 
@@ -261,7 +283,7 @@ Fill a region with the specified block type.
 
 **Example:**
 ```python
-# Fill a 10x10x10 cube with glass
+# Fill an 11x11x11 cube with glass (both corners are included)
 count = mc.fill(0, 60, 0, 10, 70, 10, "minecraft:glass")
 print(f"Filled {count} blocks")  # "Filled 1331 blocks"
 ```
@@ -275,7 +297,7 @@ getPos(username: str) -> List[int]
 Get a player's current position.
 
 **Parameters:**
-- `username` (str): Player's Minecraft username (case-sensitive)
+- `username` (str): Player's Minecraft username (the full name; case does not matter)
 
 **Returns:**
 - List of `[x, y, z]` coordinates (integers)
@@ -360,7 +382,7 @@ Control world time.
 
 **Parameters:**
 - `action` (str): Action to perform ("set", "add", "query")
-- `value` (int, optional): Time value (0-24000) for "set" or "add" actions
+- `value` (int, optional): Time in ticks for "set" (0-24000) or "add"
 
 **Returns:**
 - Current world time (0-24000)
@@ -489,13 +511,13 @@ kill(selector: str) -> int
 Remove entities from the world.
 
 **Parameters:**
-- `selector` (str): Entity selector:
-  - `"all"` - Kill all entities
-  - Entity type (e.g., `"zombie"`, `"creeper"`) - Kill all of that type
+- `selector` (str): Entity selector (only these three forms; vanilla selectors such as `"@e[type=zombie]"` and UUIDs are rejected):
+  - `"all"` - Remove every non-player entity, including dropped items, armor stands and item frames
+  - Entity type (e.g., `"zombie"`, `"creeper"`) - Remove all of that type
   - `"player:username"` - Kill a specific player
 
 **Returns:**
-- Number of entities killed
+- Number of entities killed. `"all"` and entity types act on the main world, only on loaded chunks, and remove at most 1000 entities per call.
 
 **Raises:**
 - `ConnectionError`: Failed to connect to server
@@ -536,12 +558,12 @@ High-performance bulk block editing (like WorldEdit). Place large structures wit
     {
         "block": "minecraft:chest",
         "block_state": {"facing": "north"},  # Optional
-        "nbt": {"CustomName": '{"text":"Storage"}'}  # Optional
+        "nbt": {"CustomName": "Storage"}  # Optional, same keys as setblock()
     }
     ```
 
 **Returns:**
-- Number of blocks placed
+- Number of blocks placed (`None` entries are not counted)
 
 **Raises:**
 - `ConnectionError`: Failed to connect to server
@@ -563,7 +585,7 @@ blocks = [
     [[{
         "block": "minecraft:chest",
         "block_state": {"facing": "north"},
-        "nbt": {"CustomName": '{"text":"Loot"}'}
+        "nbt": {"CustomName": "Loot"}
     }, "stone"], ["diamond_block", "gold_block"]]
 ]
 mc.edit(100, 64, 200, blocks)
@@ -605,6 +627,7 @@ print(f"House built: {count} blocks")
 - Use `fill()` for large areas of the same block
 - Much faster than calling `setblock()` repeatedly
 - Supports thousands of blocks in a single operation
+- Place doors and beds with `setblock()` (see above) rather than `edit()`
 
 ##### clone()
 
@@ -629,9 +652,9 @@ Clone a region of blocks to a new location.
 
 **Example:**
 ```python
-# Clone a 10x10x10 region
+# Clone an 11x11x11 region (both corners are included)
 count = mc.clone(0, 64, 0, 10, 74, 10, 20, 64, 0)
-print(f"Cloned {count} blocks")
+print(f"Cloned {count} blocks")  # "Cloned 1331 blocks"
 
 # Copy a house from one location to another
 mc.clone(100, 64, 100, 110, 74, 110, 200, 64, 200)
@@ -673,7 +696,7 @@ mc.setblock(0, 66, 0, "diamond_block")
 mc.setblock(0, 67, 0, "glowstone")
 ```
 
-See the [Minecraft Wiki](https://minecraft.fandom.com/wiki/Java_Edition_data_values) for a complete list of block IDs.
+See the [Minecraft Wiki](https://minecraft.wiki/w/Java_Edition_data_values) for a complete list of block IDs. Use block ids, not item ids: `"bricks"` is the block, `"brick"` the item.
 
 ## Advanced Usage
 
@@ -704,7 +727,7 @@ def build_cube(mc, x, y, z, size, block):
     mc.fill(x, y, z, x+size, y+size, z, block)
     mc.fill(x, y, z+size, x+size, y+size, z+size, block)
 
-# Build a 10x10x10 glass cube
+# Build a hollow 11x11x11 glass cube (from x to x+size, inclusive)
 build_cube(mc, 0, 64, 0, 10, "glass")
 ```
 
@@ -712,6 +735,7 @@ build_cube(mc, 0, 64, 0, 10, "glass")
 
 ```python
 import time
+from mcpylib import CommandError
 
 def follow_player(mc, username, interval=1.0):
     """Track player movement"""
@@ -731,11 +755,13 @@ follow_player(mc, "Steve")
 ## Requirements
 
 - Python 3.11 or higher
-- No external dependencies (uses only standard library)
+- A Paper or Spigot 26.1+ server running the MCPyLib plugin 1.2.0
+- Runtime dependency: `python-dotenv` (installed automatically; the client itself only uses the standard library, python-dotenv is there for loading `.env` files in scripts and the examples)
 
 ## See Also
 
-- [Main Documentation](../README.md)
-- [Server Plugin Documentation](../ServerPlugin/README.md)
-- [Communication Protocol](../PROTOCOL.md)
-- [Example Scripts](../example.py)
+- [Main Documentation](https://github.com/treeleaves30760/MCPyLib#readme)
+- [Full API Reference](https://github.com/treeleaves30760/MCPyLib/blob/main/docs/api-reference.md)
+- [Server Plugin Documentation](https://github.com/treeleaves30760/MCPyLib/blob/main/ServerPlugin/README.md)
+- [Communication Protocol](https://github.com/treeleaves30760/MCPyLib/blob/main/docs/protocol.md)
+- [Example Scripts](https://github.com/treeleaves30760/MCPyLib/tree/main/examples)
