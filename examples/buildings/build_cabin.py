@@ -79,8 +79,14 @@ def outline_border(mc: MCPyLib, x0: int, y0: int, z0: int) -> None:
 
 
 def set_door(mc: MCPyLib, x: int, y: int, z: int, facing: str, hinge: str = "left") -> None:
-    """放一扇直立門（2 格高）。"""
-    mc.setblock(x, y, z, DOOR)
+    """Place a full two-block door with its lower half at (x, y, z).
+
+    The upper half goes first. Placing the lower half afterwards joins the two;
+    in the other order the server's block update breaks the half placed first.
+    """
+    state = {"facing": facing, "hinge": hinge}
+    mc.setblock(x, y + 1, z, DOOR, block_state={**state, "half": "upper"})
+    mc.setblock(x, y, z, DOOR, block_state={**state, "half": "lower"})
 
 
 def carve_and_glass(mc: MCPyLib, xa: int, ya: int, za: int, xb: int, yb: int, zb: int) -> None:
@@ -190,8 +196,12 @@ def build_interior(mc: MCPyLib, x0: int, y0: int, z0: int) -> None:
     bed_foot_x = ix1 - 2
     bed_z = iz0 + 4
     # 床（兩格）：foot + head
+    # Bed (two blocks): the head lies one block in the facing direction (west).
+    # Place the head first, then the foot, so the halves join instead of breaking.
+    mc.setblock(bed_foot_x - 1, y0 + 1, bed_z, "white_bed",
+                block_state={"facing": "west", "part": "head"})
     mc.setblock(bed_foot_x, y0 + 1, bed_z, "white_bed",
-                block_state={"facing": "west"})
+                block_state={"facing": "west", "part": "foot"})
     mc.setblock(ix1 - 2, y0 + 1, bed_z + 2, CHEST,
                 block_state={"facing": "west"})
     mc.setblock(ix1 - 1, y0 + 3, iz0 + 1, TORCH)

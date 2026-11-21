@@ -143,11 +143,11 @@ for x in range(10):
     for z in range(10):
         blocks[x][4][z] = "oak_planks"
 
-# Add a chest with custom name
+# Add a chest with custom name (plain text, not a JSON text component)
 blocks[2][1][2] = {
     "block": "minecraft:chest",
     "block_state": {"facing": "north"},
-    "nbt": {"CustomName": '{"text":"Storage Chest"}'}
+    "nbt": {"CustomName": "Storage Chest"}
 }
 
 # Add a sign

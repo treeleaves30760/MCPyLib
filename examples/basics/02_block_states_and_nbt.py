@@ -67,17 +67,19 @@ try:
     print("Placed sign with custom text at (100, 64, 204)")
 
     print("\n=== Example 6: Chest with Custom Name ===")
-    # Place a chest with a custom name
+    # Place a chest with a custom name (plain text, not a JSON text component)
     mc.setblock(
         100, 64, 205,
         "minecraft:chest",
         block_state={"facing": "north"},
-        nbt={"CustomName": '{"text":"Treasure Chest"}'}
+        nbt={"CustomName": "Treasure Chest"}
     )
     print("Placed chest with custom name at (100, 64, 205)")
 
     print("\n=== Example 7: Complex Stair Configuration ===")
-    # Create a corner stair
+    # Create a corner stair. Note: the game recalculates "shape" from the
+    # neighboring stairs whenever a block next to it changes, so a lone stair
+    # turns back to "straight" once Example 8 places the fence beside it.
     mc.setblock(
         100, 64, 206,
         "minecraft:stone_brick_stairs",
