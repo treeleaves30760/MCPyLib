@@ -1,7 +1,9 @@
 """MCPyLib Client Implementation"""
 
+import base64
 import json
 import socket
+import zlib
 from typing import List, Optional
 
 
@@ -1180,11 +1182,68 @@ class MCPyLib:
             >>> mc.edit(100, 64, 200, blocks.tolist())
             250
         """
+        # Build palette: collect unique block values
+        palette_map = {}  # value_key -> palette_index
+        palette_list = []  # ordered palette values
+
+        def _get_palette_key(val):
+            if val is None:
+                return None
+            if isinstance(val, str):
+                return val
+            if isinstance(val, dict):
+                return json.dumps(val, sort_keys=True)
+            return str(val)
+
+        def _get_or_add(val):
+            key = _get_palette_key(val)
+            if key not in palette_map:
+                palette_map[key] = len(palette_list)
+                palette_list.append(val)
+            return palette_map[key]
+
+        # Flatten 3D array to 1D palette indices (x -> y -> z order)
+        size_x = len(blocks)
+        size_y = len(blocks[0]) if size_x > 0 else 0
+        size_z = len(blocks[0][0]) if size_y > 0 else 0
+
+        flat_indices = []
+        for x_layer in blocks:
+            for y_layer in x_layer:
+                for block_val in y_layer:
+                    flat_indices.append(_get_or_add(block_val))
+
+        # RLE compression: [count1, index1, count2, index2, ...]
+        rle = []
+        if flat_indices:
+            current = flat_indices[0]
+            count = 1
+            for idx in flat_indices[1:]:
+                if idx == current:
+                    count += 1
+                else:
+                    rle.append(count)
+                    rle.append(current)
+                    current = idx
+                    count = 1
+            rle.append(count)
+            rle.append(current)
+
+        # Encode RLE as comma-separated string, then zlib + base64
+        rle_bytes = ",".join(str(v) for v in rle).encode("utf-8")
+        compressed = zlib.compress(rle_bytes)
+        data_b64 = base64.b64encode(compressed).decode("ascii")
+
         params = {
             "x": x,
             "y": y,
             "z": z,
-            "blocks": blocks
+            "sizeX": size_x,
+            "sizeY": size_y,
+            "sizeZ": size_z,
+            "palette": palette_list,
+            "data": data_b64,
+            "encoding": "palette_rle_zlib"
         }
         return self._send_command("bulkEdit", params)
 
@@ -1360,7 +1419,8 @@ class MCPyLib:
         """Get or set a game rule
 
         Args:
-            rule: Game rule name (e.g., "doDaylightCycle", "keepInventory")
+            rule: Game rule name (e.g., "keep_inventory", "mob_griefing"; legacy
+                camelCase names like "keepInventory" are also accepted)
             value: Value to set, or None to query current value
 
         Returns:
@@ -1374,7 +1434,7 @@ class MCPyLib:
         Example:
             >>> mc.gamerule("doDaylightCycle", "false")
             'false'
-            >>> mc.gamerule("keepInventory")
+            >>> mc.gamerule("keep_inventory")
             'false'
         """
         params = {"rule": rule}

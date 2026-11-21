@@ -6,14 +6,20 @@
 
     <groupId>com.mcpylib</groupId>
     <artifactId>MCPyLib-Plugin</artifactId>
-    <version>1.1.2</version>
+    <version>1.2.0</version>
     <packaging>jar</packaging>
 
     <name>MCPyLib Plugin</name>
     <description>Minecraft server plugin for MCPyLib Python library</description>
 
     <properties>
-        <java.version>21</java.version>
+        <java.version>25</java.version>
+        <spigot.version>26.3-R0.1-SNAPSHOT</spigot.version>
+        <paper.version>26.3.build.257-stable</paper.version>
+        <!-- Default build target: Spigot API (runs on Spigot and Paper). -->
+        <server.api.groupId>org.spigotmc</server.api.groupId>
+        <server.api.artifactId>spigot-api</server.api.artifactId>
+        <server.api.version>${spigot.version}</server.api.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -22,16 +28,15 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.11.0</version>
+                <version>3.16.0</version>
                 <configuration>
-                    <source>${java.version}</source>
-                    <target>${java.version}</target>
+                    <release>${java.version}</release>
                 </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
-                <version>3.5.0</version>
+                <version>3.6.2</version>
                 <executions>
                     <execution>
                         <phase>package</phase>
@@ -60,17 +65,36 @@
         </repository>
     </repositories>
 
+    <profiles>
+        <!-- mvn -Ppaper verify : compile against the Paper API instead of Spigot
+             to catch Paper/Spigot API divergences (CI builds both). -->
+        <profile>
+            <id>paper</id>
+            <repositories>
+                <repository>
+                    <id>papermc</id>
+                    <url>https://repo.papermc.io/repository/maven-public/</url>
+                </repository>
+            </repositories>
+            <properties>
+                <server.api.groupId>io.papermc.paper</server.api.groupId>
+                <server.api.artifactId>paper-api</server.api.artifactId>
+                <server.api.version>${paper.version}</server.api.version>
+            </properties>
+        </profile>
+    </profiles>
+
     <dependencies>
         <dependency>
-            <groupId>org.spigotmc</groupId>
-            <artifactId>spigot-api</artifactId>
-            <version>1.21.4-R0.1-SNAPSHOT</version>
+            <groupId>${server.api.groupId}</groupId>
+            <artifactId>${server.api.artifactId}</artifactId>
+            <version>${server.api.version}</version>
             <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
-            <version>2.10.1</version>
+            <version>2.15.0</version>
         </dependency>
     </dependencies>
 </project>

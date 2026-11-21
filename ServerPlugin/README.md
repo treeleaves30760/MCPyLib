@@ -12,8 +12,8 @@ A Spigot/Bukkit plugin that enables remote control of Minecraft servers via the 
 
 ## Requirements
 
-- Minecraft Server (Spigot/Paper) 1.20.1+
-- Java 17+
+- Minecraft Server (Spigot/Paper) 26.1+
+- Java 25+
 - Maven (for building)
 
 ## Building
@@ -21,7 +21,7 @@ A Spigot/Bukkit plugin that enables remote control of Minecraft servers via the 
 Build the plugin using Maven:
 
 ```bash
-mvn clean package
+./mvnw clean package   # Windows: mvnw.cmd clean package
 ```
 
 The compiled JAR will be in `target/MCPyLib-Plugin-0.1.0.jar`

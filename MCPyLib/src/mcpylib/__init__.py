@@ -11,7 +11,7 @@ from .client import (
     CommandError,
 )
 
-__version__ = "1.0.2"
+__version__ = "1.2.0"
 __all__ = [
     "MCPyLib",
     "MCPyLibError",

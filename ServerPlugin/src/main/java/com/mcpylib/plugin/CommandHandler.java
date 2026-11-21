@@ -27,12 +27,15 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.MerchantRecipe;
 import org.bukkit.util.Vector;
 
+import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+import java.util.zip.Inflater;
 
 public class CommandHandler {
 
@@ -500,24 +503,219 @@ public class CommandHandler {
     }
 
     private static CommandResult handleBulkEdit(JsonObject params) {
-        // Get parameters
-        if (!params.has("x") || !params.has("y") || !params.has("z") || !params.has("blocks")) {
-            return CommandResult.error("Missing parameters: x, y, z, blocks");
+        if (!params.has("x") || !params.has("y") || !params.has("z")) {
+            return CommandResult.error("Missing parameters: x, y, z");
         }
 
         int startX = params.get("x").getAsInt();
         int startY = params.get("y").getAsInt();
         int startZ = params.get("z").getAsInt();
-        JsonArray blocks = params.getAsJsonArray("blocks");
 
-        // Get world
         World world = Bukkit.getWorlds().get(0);
+
+        // Detect format: new compressed vs legacy 3D array
+        if (params.has("encoding")) {
+            return handleBulkEditCompressed(params, startX, startY, startZ, world);
+        } else {
+            return handleBulkEditLegacy(params, startX, startY, startZ, world);
+        }
+    }
+
+    private static CommandResult handleBulkEditCompressed(JsonObject params, int startX, int startY, int startZ, World world) {
+        try {
+            String encoding = params.get("encoding").getAsString();
+            if (!"palette_rle_zlib".equals(encoding)) {
+                return CommandResult.error("Unsupported encoding: " + encoding);
+            }
+
+            int sizeX = params.get("sizeX").getAsInt();
+            int sizeY = params.get("sizeY").getAsInt();
+            int sizeZ = params.get("sizeZ").getAsInt();
+            JsonArray paletteJson = params.getAsJsonArray("palette");
+            String dataB64 = params.get("data").getAsString();
+
+            // Decode: base64 -> zlib inflate -> RLE string
+            byte[] compressed = Base64.getDecoder().decode(dataB64);
+            Inflater inflater = new Inflater();
+            inflater.setInput(compressed);
+            ByteArrayOutputStream bos = new ByteArrayOutputStream(compressed.length * 4);
+            byte[] buf = new byte[4096];
+            while (!inflater.finished()) {
+                int len = inflater.inflate(buf);
+                bos.write(buf, 0, len);
+            }
+            inflater.end();
+            String rleString = bos.toString("UTF-8");
+
+            // Parse RLE: "count1,index1,count2,index2,..."
+            String[] rleParts = rleString.split(",");
+
+            // Pre-parse palette into Materials/BlockData/JsonObjects
+            int paletteSize = paletteJson.size();
+            Material[] paletteMaterials = new Material[paletteSize];
+            JsonObject[] paletteObjects = new JsonObject[paletteSize];
+            boolean[] paletteIsNull = new boolean[paletteSize];
+
+            for (int i = 0; i < paletteSize; i++) {
+                JsonElement elem = paletteJson.get(i);
+                if (elem.isJsonNull()) {
+                    paletteIsNull[i] = true;
+                } else if (elem.isJsonPrimitive() && elem.getAsJsonPrimitive().isString()) {
+                    Material mat = parseMaterial(elem.getAsString());
+                    if (mat == null) {
+                        return CommandResult.error("Invalid block type in palette[" + i + "]: " + elem.getAsString());
+                    }
+                    paletteMaterials[i] = mat;
+                } else if (elem.isJsonObject()) {
+                    JsonObject obj = elem.getAsJsonObject();
+                    if (!obj.has("block")) {
+                        return CommandResult.error("Missing 'block' field in palette[" + i + "]");
+                    }
+                    Material mat = parseMaterial(obj.get("block").getAsString());
+                    if (mat == null) {
+                        return CommandResult.error("Invalid block type in palette[" + i + "]: " + obj.get("block").getAsString());
+                    }
+                    paletteMaterials[i] = mat;
+                    paletteObjects[i] = obj;
+                }
+            }
+
+            // Expand RLE into flat palette index array
+            int totalBlocks = sizeX * sizeY * sizeZ;
+            int[] flatPaletteIndices = new int[totalBlocks];
+            int flatIndex = 0;
+
+            for (int r = 0; r < rleParts.length; r += 2) {
+                int runLength = Integer.parseInt(rleParts[r]);
+                int paletteIndex = Integer.parseInt(rleParts[r + 1]);
+                for (int j = 0; j < runLength && flatIndex < totalBlocks; j++) {
+                    flatPaletteIndices[flatIndex++] = paletteIndex;
+                }
+            }
+
+            // Determine which palette entries need Bukkit API (have block_state or nbt)
+            boolean[] paletteNeedsBukkit = new boolean[paletteSize];
+            boolean hasComplexEntries = false;
+            for (int i = 0; i < paletteSize; i++) {
+                if (paletteObjects[i] != null
+                        && (paletteObjects[i].has("block_state") || paletteObjects[i].has("nbt"))) {
+                    paletteNeedsBukkit[i] = true;
+                    hasComplexEntries = true;
+                }
+            }
+
+            // Try NMS fast path for simple blocks
+            boolean nmsUsed = false;
+            int count = 0;
+            if (NMSBlockPlacer.isAvailable(world)) {
+                try {
+                    count = NMSBlockPlacer.placeBlocks(
+                            world, startX, startY, startZ,
+                            sizeX, sizeY, sizeZ,
+                            paletteMaterials, paletteObjects, paletteIsNull,
+                            flatPaletteIndices);
+                    nmsUsed = true;
+                } catch (Throwable e) {
+                    Bukkit.getLogger().warning("[MCPyLib] NMS block placement failed, falling back to Bukkit API: " + e.getMessage());
+                }
+            }
+
+            if (nmsUsed) {
+                // NMS handled simple blocks. Do a second pass for complex entries
+                // (block_state/nbt) using CommandHandler's Bukkit helpers.
+                if (hasComplexEntries) {
+                    for (int fi = 0; fi < totalBlocks; fi++) {
+                        int pi = flatPaletteIndices[fi];
+                        if (!paletteNeedsBukkit[pi]) continue;
+
+                        int dz = fi % sizeZ;
+                        int dy = (fi / sizeZ) % sizeY;
+                        int dx = fi / (sizeY * sizeZ);
+
+                        int worldX = startX + dx;
+                        int worldY = startY + dy;
+                        int worldZ = startZ + dz;
+
+                        Block block = world.getBlockAt(worldX, worldY, worldZ);
+                        // NMS already set the base type; apply state and NBT via Bukkit
+                        JsonObject blockData = paletteObjects[pi];
+
+                        if (blockData.has("block_state")) {
+                            JsonObject blockState = blockData.getAsJsonObject("block_state");
+                            BlockData bukkitBlockData = block.getBlockData();
+                            for (Map.Entry<String, JsonElement> entry : blockState.entrySet()) {
+                                applyBlockState(bukkitBlockData, entry.getKey(), entry.getValue().getAsString());
+                            }
+                            block.setBlockData(bukkitBlockData);
+                        }
+
+                        if (blockData.has("nbt")) {
+                            JsonObject nbtData = blockData.getAsJsonObject("nbt");
+                            BlockState blockState = block.getState();
+                            applyNBTData(blockState, nbtData);
+                            blockState.update(true);
+                        }
+                    }
+                }
+            } else {
+                // Full Bukkit API fallback
+                for (int fi = 0; fi < totalBlocks; fi++) {
+                    int pi = flatPaletteIndices[fi];
+
+                    if (paletteIsNull[pi]) continue;
+
+                    int dz = fi % sizeZ;
+                    int dy = (fi / sizeZ) % sizeY;
+                    int dx = fi / (sizeY * sizeZ);
+
+                    int worldX = startX + dx;
+                    int worldY = startY + dy;
+                    int worldZ = startZ + dz;
+
+                    Block block = world.getBlockAt(worldX, worldY, worldZ);
+                    block.setType(paletteMaterials[pi], false);
+
+                    if (paletteObjects[pi] != null) {
+                        JsonObject blockData = paletteObjects[pi];
+
+                        if (blockData.has("block_state")) {
+                            JsonObject blockState = blockData.getAsJsonObject("block_state");
+                            BlockData bukkitBlockData = block.getBlockData();
+                            for (Map.Entry<String, JsonElement> entry : blockState.entrySet()) {
+                                applyBlockState(bukkitBlockData, entry.getKey(), entry.getValue().getAsString());
+                            }
+                            block.setBlockData(bukkitBlockData);
+                        }
+
+                        if (blockData.has("nbt")) {
+                            JsonObject nbtData = blockData.getAsJsonObject("nbt");
+                            BlockState blockState = block.getState();
+                            applyNBTData(blockState, nbtData);
+                            blockState.update(true);
+                        }
+                    }
+
+                    count++;
+                }
+            }
+
+            return CommandResult.success(count);
+        } catch (Exception e) {
+            return CommandResult.error("Failed to bulk edit (compressed): " + e.getMessage());
+        }
+    }
+
+    private static CommandResult handleBulkEditLegacy(JsonObject params, int startX, int startY, int startZ, World world) {
+        if (!params.has("blocks")) {
+            return CommandResult.error("Missing parameters: blocks");
+        }
+
+        JsonArray blocks = params.getAsJsonArray("blocks");
 
         try {
             int count = 0;
             int sizeX = blocks.size();
 
-            // Iterate through 3D array: blocks[x][y][z]
             for (int dx = 0; dx < sizeX; dx++) {
                 JsonElement xElement = blocks.get(dx);
                 if (!xElement.isJsonArray()) {
@@ -537,22 +735,17 @@ public class CommandHandler {
                     for (int dz = 0; dz < sizeZ; dz++) {
                         JsonElement blockElement = zArray.get(dz);
 
-                        // Skip null elements (air or skip position)
                         if (blockElement.isJsonNull()) {
                             continue;
                         }
 
-                        // Calculate world coordinates
                         int worldX = startX + dx;
                         int worldY = startY + dy;
                         int worldZ = startZ + dz;
 
-                        // Get block at position
                         Block block = world.getBlockAt(worldX, worldY, worldZ);
 
-                        // Handle different element types (mixed mode)
                         if (blockElement.isJsonPrimitive() && blockElement.getAsJsonPrimitive().isString()) {
-                            // Simple string: just block name
                             String blockName = blockElement.getAsString();
                             Material material = parseMaterial(blockName);
                             if (material == null) {
@@ -561,46 +754,36 @@ public class CommandHandler {
                             block.setType(material, false);
                             count++;
                         } else if (blockElement.isJsonObject()) {
-                            // Complex object: block, block_state, nbt
-                            JsonObject blockData = blockElement.getAsJsonObject();
+                            JsonObject blockDataObj = blockElement.getAsJsonObject();
 
-                            if (!blockData.has("block")) {
+                            if (!blockDataObj.has("block")) {
                                 return CommandResult.error("Missing 'block' field at [" + dx + "][" + dy + "][" + dz + "]");
                             }
 
-                            String blockName = blockData.get("block").getAsString();
+                            String blockName = blockDataObj.get("block").getAsString();
                             Material material = parseMaterial(blockName);
                             if (material == null) {
                                 return CommandResult.error("Invalid block type at [" + dx + "][" + dy + "][" + dz + "]: " + blockName);
                             }
 
-                            // Set block type
                             block.setType(material, false);
 
-                            // Apply block state if provided
-                            if (blockData.has("block_state")) {
-                                JsonObject blockState = blockData.getAsJsonObject("block_state");
+                            if (blockDataObj.has("block_state")) {
+                                JsonObject blockState = blockDataObj.getAsJsonObject("block_state");
                                 BlockData bukkitBlockData = block.getBlockData();
-
                                 for (Map.Entry<String, JsonElement> entry : blockState.entrySet()) {
-                                    String property = entry.getKey();
-                                    String value = entry.getValue().getAsString();
-
                                     try {
-                                        applyBlockState(bukkitBlockData, property, value);
+                                        applyBlockState(bukkitBlockData, entry.getKey(), entry.getValue().getAsString());
                                     } catch (Exception e) {
                                         return CommandResult.error("Failed to set block state at [" + dx + "][" + dy + "][" + dz + "]: " + e.getMessage());
                                     }
                                 }
-
                                 block.setBlockData(bukkitBlockData);
                             }
 
-                            // Apply NBT data if provided
-                            if (blockData.has("nbt")) {
-                                JsonObject nbtData = blockData.getAsJsonObject("nbt");
+                            if (blockDataObj.has("nbt")) {
+                                JsonObject nbtData = blockDataObj.getAsJsonObject("nbt");
                                 BlockState blockState = block.getState();
-
                                 try {
                                     applyNBTData(blockState, nbtData);
                                     blockState.update(true);
@@ -1035,6 +1218,10 @@ public class CommandHandler {
     }
 
     private static Entity findEntityByUUID(UUID uuid) {
+        Entity direct = Bukkit.getEntity(uuid);
+        if (direct != null) {
+            return direct;
+        }
         for (World world : Bukkit.getWorlds()) {
             for (Entity entity : world.getEntities()) {
                 if (entity.getUniqueId().equals(uuid)) {
@@ -1572,7 +1759,7 @@ public class CommandHandler {
         Villager villager = (Villager) entity;
         Map<String, Object> result = new HashMap<>();
 
-        result.put("profession", villager.getProfession().name());
+        result.put("profession", ((org.bukkit.Keyed) villager.getProfession()).getKey().getKey().toUpperCase());
         result.put("level", villager.getVillagerLevel());
 
         // Get trade list
@@ -1625,7 +1812,8 @@ public class CommandHandler {
         String professionStr = params.get("profession").getAsString();
         Villager.Profession profession;
         try {
-            profession = Villager.Profession.valueOf(professionStr.toUpperCase());
+            profession = lookupRegistry(org.bukkit.Registry.VILLAGER_PROFESSION, professionStr);
+            if (profession == null) throw new IllegalArgumentException(professionStr);
         } catch (IllegalArgumentException e) {
             return CommandResult.error("Invalid profession: " + professionStr +
                 " (valid: ARMORER, BUTCHER, CARTOGRAPHER, CLERIC, FARMER, FISHERMAN, FLETCHER, " +
@@ -1633,7 +1821,14 @@ public class CommandHandler {
         }
 
         try {
-            ((Villager) entity).setProfession(profession);
+            Villager villagerEntity = (Villager) entity;
+            villagerEntity.setProfession(profession);
+            // Vanilla resets the profession of an unemployed, 0-XP villager on the
+            // next brain tick; 1 XP locks it in like a completed trade would.
+            if (profession != Villager.Profession.NONE && profession != Villager.Profession.NITWIT
+                    && villagerEntity.getVillagerExperience() == 0) {
+                villagerEntity.setVillagerExperience(1);
+            }
             return CommandResult.success(true);
         } catch (Exception e) {
             return CommandResult.error("Failed to set villager profession: " + e.getMessage());
@@ -1723,9 +1918,7 @@ public class CommandHandler {
         try {
             final String cmd = command;
             // Must run on main thread
-            boolean success = Bukkit.getScheduler().callSyncMethod(plugin, () ->
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd)
-            ).get();
+            boolean success = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd); // already on the main thread (ClientHandler dispatches via callSyncMethod)
             return CommandResult.success(success);
         } catch (Exception e) {
             return CommandResult.error("Failed to execute command: " + e.getMessage());
@@ -1749,7 +1942,7 @@ public class CommandHandler {
             effectName = effectName.substring(10);
         }
 
-        org.bukkit.potion.PotionEffectType effectType = org.bukkit.potion.PotionEffectType.getByName(effectName.toUpperCase());
+        org.bukkit.potion.PotionEffectType effectType = lookupEffect(effectName);
         if (effectType == null) {
             return CommandResult.error("Invalid effect type: " + effectName);
         }
@@ -1785,7 +1978,7 @@ public class CommandHandler {
             if (effectName.startsWith("minecraft:")) {
                 effectName = effectName.substring(10);
             }
-            org.bukkit.potion.PotionEffectType effectType = org.bukkit.potion.PotionEffectType.getByName(effectName.toUpperCase());
+            org.bukkit.potion.PotionEffectType effectType = lookupEffect(effectName);
             if (effectType == null) {
                 return CommandResult.error("Invalid effect type: " + effectName);
             }
@@ -1928,7 +2121,9 @@ public class CommandHandler {
         String ruleName = params.get("rule").getAsString();
         World world = Bukkit.getWorlds().get(0);
 
-        org.bukkit.GameRule<?> gameRule = org.bukkit.GameRule.getByName(ruleName);
+        boolean inverted = LEGACY_INVERTED_GAMERULES.contains(ruleName);
+        org.bukkit.GameRule<?> gameRule = lookupGameRule(ruleName);
+        Class<?> ruleType = gameRule == null ? null : gameRuleType(gameRule);
         if (gameRule == null) {
             return CommandResult.error("Invalid game rule: " + ruleName);
         }
@@ -1936,11 +2131,11 @@ public class CommandHandler {
         if (params.has("value") && !params.get("value").isJsonNull()) {
             String valueStr = params.get("value").getAsString();
             try {
-                if (gameRule.getType() == Boolean.class) {
+                if (ruleType == Boolean.class) {
                     @SuppressWarnings("unchecked")
                     org.bukkit.GameRule<Boolean> boolRule = (org.bukkit.GameRule<Boolean>) gameRule;
-                    world.setGameRule(boolRule, Boolean.parseBoolean(valueStr));
-                } else if (gameRule.getType() == Integer.class) {
+                    world.setGameRule(boolRule, Boolean.parseBoolean(valueStr) ^ inverted);
+                } else if (ruleType == Integer.class) {
                     @SuppressWarnings("unchecked")
                     org.bukkit.GameRule<Integer> intRule = (org.bukkit.GameRule<Integer>) gameRule;
                     world.setGameRule(intRule, Integer.parseInt(valueStr));
@@ -1952,6 +2147,9 @@ public class CommandHandler {
 
         // Return current value
         Object currentValue = world.getGameRuleValue(gameRule);
+        if (inverted && currentValue instanceof Boolean b) {
+            currentValue = !b;
+        }
         return CommandResult.success(currentValue != null ? currentValue.toString() : null);
     }
 
@@ -1992,9 +2190,7 @@ public class CommandHandler {
 
         try {
             final String cmd = "tellraw " + username + " " + jsonText;
-            boolean success = Bukkit.getScheduler().callSyncMethod(plugin, () ->
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd)
-            ).get();
+            boolean success = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd); // already on the main thread (ClientHandler dispatches via callSyncMethod)
             return CommandResult.success(success);
         } catch (Exception e) {
             return CommandResult.error("Failed to send tellraw: " + e.getMessage());
@@ -2165,7 +2361,7 @@ public class CommandHandler {
         }
 
         try {
-            player.setBedSpawnLocation(loc, true);
+            player.setRespawnLocation(loc, true);
             return CommandResult.success(true);
         } catch (Exception e) {
             return CommandResult.error("Failed to set spawnpoint: " + e.getMessage());
@@ -2215,7 +2411,7 @@ public class CommandHandler {
                     double size = params.get("value").getAsDouble();
                     if (params.has("time") && params.get("time").getAsLong() > 0) {
                         long time = params.get("time").getAsLong();
-                        border.setSize(size, time);
+                        border.setSize(size, java.util.concurrent.TimeUnit.SECONDS, time);
                     } else {
                         border.setSize(size);
                     }
@@ -2237,7 +2433,7 @@ public class CommandHandler {
                     }
                     double addSize = border.getSize() + params.get("value").getAsDouble();
                     if (params.has("time") && params.get("time").getAsLong() > 0) {
-                        border.setSize(addSize, params.get("time").getAsLong());
+                        border.setSize(addSize, java.util.concurrent.TimeUnit.SECONDS, params.get("time").getAsLong());
                     } else {
                         border.setSize(addSize);
                     }
@@ -2828,7 +3024,8 @@ public class CommandHandler {
         // Handle both old (GENERIC_MAX_HEALTH) and new (MAX_HEALTH) naming
         Attribute attribute;
         try {
-            attribute = Attribute.valueOf(attrName);
+            attribute = lookupAttribute(attrName);
+            if (attribute == null) throw new IllegalArgumentException(attrName);
         } catch (IllegalArgumentException e) {
             return CommandResult.error("Invalid attribute: " + attrName);
         }
@@ -2887,12 +3084,7 @@ public class CommandHandler {
             enchantName = enchantName.substring(10);
         }
 
-        org.bukkit.enchantments.Enchantment enchantment = org.bukkit.enchantments.Enchantment.getByName(enchantName.toUpperCase());
-        if (enchantment == null) {
-            // Try by key
-            org.bukkit.NamespacedKey key = org.bukkit.NamespacedKey.minecraft(enchantName.toLowerCase());
-            enchantment = org.bukkit.enchantments.Enchantment.getByKey(key);
-        }
+        org.bukkit.enchantments.Enchantment enchantment = lookupEnchantment(enchantName);
         if (enchantment == null) {
             return CommandResult.error("Invalid enchantment: " + enchantName);
         }
@@ -2946,7 +3138,7 @@ public class CommandHandler {
         if (item.getItemMeta() != null && !item.getItemMeta().getEnchants().isEmpty()) {
             Map<String, Integer> enchants = new HashMap<>();
             for (Map.Entry<org.bukkit.enchantments.Enchantment, Integer> entry : item.getItemMeta().getEnchants().entrySet()) {
-                enchants.put(entry.getKey().getKey().getKey(), entry.getValue());
+                enchants.put(((org.bukkit.Keyed) entry.getKey()).getKey().getKey(), entry.getValue());
             }
             result.put("enchantments", enchants);
         }
@@ -3120,6 +3312,121 @@ public class CommandHandler {
     }
 
     // ===== Phase 6: World generation & structure placement =====
+    // ===== Registry helpers (Minecraft 1.21.3+ / 26.x registry-backed types) =====
+
+    /**
+     * Looks up a registry entry by name. Accepts "minecraft:speed", "speed",
+     * "SPEED" or "custom_ns:thing". Returns null when not found.
+     */
+    private static <T extends org.bukkit.Keyed> T lookupRegistry(org.bukkit.Registry<T> registry, String name) {
+        if (name == null || name.isEmpty()) {
+            return null;
+        }
+        String normalized = name.trim().toLowerCase(java.util.Locale.ROOT).replace(' ', '_');
+        org.bukkit.NamespacedKey key = org.bukkit.NamespacedKey.fromString(normalized);
+        return key == null ? null : registry.get(key);
+    }
+
+    private static Attribute lookupAttribute(String name) {
+        Attribute attribute = lookupRegistry(org.bukkit.Registry.ATTRIBUTE, name);
+        if (attribute == null && name != null) {
+            // Legacy names such as GENERIC_MAX_HEALTH / generic.max_health / PLAYER_BLOCK_BREAK_SPEED
+            String legacy = name.toLowerCase(java.util.Locale.ROOT)
+                    .replaceFirst("^(minecraft:)?(generic|player|zombie|horse)[._]", "");
+            attribute = lookupRegistry(org.bukkit.Registry.ATTRIBUTE, legacy);
+        }
+        return attribute;
+    }
+
+    @SuppressWarnings("deprecation")
+    private static org.bukkit.potion.PotionEffectType lookupEffect(String name) {
+        org.bukkit.potion.PotionEffectType type = lookupRegistry(org.bukkit.Registry.EFFECT, name);
+        if (type == null && name != null) {
+            // Legacy Bukkit names such as INCREASE_DAMAGE / SLOW / JUMP
+            type = org.bukkit.potion.PotionEffectType.getByName(name.toUpperCase(java.util.Locale.ROOT));
+        }
+        return type;
+    }
+
+    @SuppressWarnings("deprecation")
+    private static org.bukkit.enchantments.Enchantment lookupEnchantment(String name) {
+        org.bukkit.enchantments.Enchantment enchantment = lookupRegistry(org.bukkit.Registry.ENCHANTMENT, name);
+        if (enchantment == null && name != null) {
+            // Legacy Bukkit names such as DAMAGE_ALL / DURABILITY
+            enchantment = org.bukkit.enchantments.Enchantment.getByName(name.toUpperCase(java.util.Locale.ROOT));
+        }
+        return enchantment;
+    }
+
+    /*
+     * org.bukkit.GameRule is an interface in the Spigot API but a class in Paper
+     * (26.x). Invoking its methods directly from bytecode compiled against one
+     * throws IncompatibleClassChangeError on the other, so every call ON a
+     * GameRule goes through reflection. Passing a GameRule as an argument
+     * (World#setGameRule / #getGameRuleValue) is safe on both.
+     */
+    private static org.bukkit.GameRule<?> lookupGameRule(String name) {
+        org.bukkit.GameRule<?> rule = lookupRegistry(org.bukkit.Registry.GAME_RULE, name);
+        if (rule == null && name != null) {
+            // Pre-1.21.11 camelCase names: renamed ones via the table, the rest
+            // by camelCase -> snake_case (keepInventory -> keep_inventory).
+            String renamed = LEGACY_GAMERULES.get(name);
+            String snake = renamed != null ? renamed : name.replaceAll("([a-z0-9])([A-Z])", "$1_$2");
+            rule = lookupRegistry(org.bukkit.Registry.GAME_RULE, snake);
+        }
+        if (rule == null && name != null) {
+            try {
+                Object legacy = org.bukkit.GameRule.class.getMethod("getByName", String.class).invoke(null, name);
+                rule = (org.bukkit.GameRule<?>) legacy;
+            } catch (ReflectiveOperationException | ClassCastException ignored) {
+                // not found / API removed
+            }
+        }
+        return rule;
+    }
+
+    /** Game rules renamed in Minecraft 1.21.11 (legacy name -> registry key). */
+    private static final Map<String, String> LEGACY_GAMERULES = Map.ofEntries(
+            Map.entry("announceAdvancements", "show_advancement_messages"),
+            Map.entry("disablePlayerMovementCheck", "player_movement_check"),
+            Map.entry("disableElytraMovementCheck", "elytra_movement_check"),
+            Map.entry("disableRaids", "raids"),
+            Map.entry("doDaylightCycle", "advance_time"),
+            Map.entry("doWeatherCycle", "advance_weather"),
+            Map.entry("doEntityDrops", "entity_drops"),
+            Map.entry("doLimitedCrafting", "limited_crafting"),
+            Map.entry("doMobLoot", "mob_drops"),
+            Map.entry("doMobSpawning", "spawn_mobs"),
+            Map.entry("doTileDrops", "block_drops"),
+            Map.entry("naturalRegeneration", "natural_health_regeneration"),
+            Map.entry("doInsomnia", "spawn_phantoms"),
+            Map.entry("doImmediateRespawn", "immediate_respawn"),
+            Map.entry("doPatrolSpawning", "spawn_patrols"),
+            Map.entry("doTraderSpawning", "spawn_wandering_traders"),
+            Map.entry("doWardenSpawning", "spawn_wardens"),
+            Map.entry("doVinesSpread", "spread_vines"),
+            Map.entry("commandBlocksEnabled", "command_blocks_work"),
+            Map.entry("spawnerBlocksEnabled", "spawner_blocks_work"),
+            Map.entry("spawnRadius", "respawn_radius"),
+            Map.entry("maxCommandChainLength", "max_command_sequence_length"),
+            Map.entry("maxCommandForkCount", "max_command_forks"),
+            Map.entry("commandModificationBlockLimit", "max_block_modifications"),
+            Map.entry("snowAccumulationHeight", "max_snow_accumulation_height"),
+            Map.entry("minecartMaxSpeed", "max_minecart_speed"));
+
+    /** Legacy "disableX" rules whose boolean meaning flipped when renamed. */
+    private static final java.util.Set<String> LEGACY_INVERTED_GAMERULES = java.util.Set.of(
+            "disablePlayerMovementCheck", "disableElytraMovementCheck", "disableRaids");
+
+    private static Class<?> gameRuleType(org.bukkit.GameRule<?> rule) {
+        try {
+            java.lang.reflect.Method m = org.bukkit.GameRule.class.getMethod("getType");
+            return (Class<?>) m.invoke(rule);
+        } catch (ReflectiveOperationException e) {
+            return null;
+        }
+    }
+
     private static CommandResult handleFillBiome(MCPyLibPlugin plugin, JsonObject params) {
         if (!params.has("x1") || !params.has("y1") || !params.has("z1") ||
             !params.has("x2") || !params.has("y2") || !params.has("z2") || !params.has("biome")) {
@@ -3143,9 +3450,7 @@ public class CommandHandler {
                 cmd.append(" replace ").append(params.get("filter_biome").getAsString());
             }
             final String cmdStr = cmd.toString();
-            boolean success = Bukkit.getScheduler().callSyncMethod(plugin, () ->
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmdStr)
-            ).get();
+            boolean success = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmdStr); // already on the main thread (ClientHandler dispatches via callSyncMethod)
             return CommandResult.success(success);
         } catch (Exception e) {
             return CommandResult.error("Failed to fill biome: " + e.getMessage());
@@ -3167,9 +3472,7 @@ public class CommandHandler {
 
         try {
             final String cmdStr = cmd.toString();
-            boolean success = Bukkit.getScheduler().callSyncMethod(plugin, () ->
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmdStr)
-            ).get();
+            boolean success = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmdStr); // already on the main thread (ClientHandler dispatches via callSyncMethod)
             return CommandResult.success(success);
         } catch (Exception e) {
             return CommandResult.error("Failed to place feature: " + e.getMessage());
@@ -3191,9 +3494,7 @@ public class CommandHandler {
 
         try {
             final String cmdStr = cmd.toString();
-            boolean success = Bukkit.getScheduler().callSyncMethod(plugin, () ->
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmdStr)
-            ).get();
+            boolean success = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmdStr); // already on the main thread (ClientHandler dispatches via callSyncMethod)
             return CommandResult.success(success);
         } catch (Exception e) {
             return CommandResult.error("Failed to place structure: " + e.getMessage());
@@ -3219,9 +3520,7 @@ public class CommandHandler {
 
         try {
             final String cmdStr = cmd.toString();
-            boolean success = Bukkit.getScheduler().callSyncMethod(plugin, () ->
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmdStr)
-            ).get();
+            boolean success = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmdStr); // already on the main thread (ClientHandler dispatches via callSyncMethod)
             return CommandResult.success(success);
         } catch (Exception e) {
             return CommandResult.error("Failed to place jigsaw: " + e.getMessage());
@@ -3255,9 +3554,7 @@ public class CommandHandler {
 
         try {
             final String cmdStr = cmd.toString();
-            boolean success = Bukkit.getScheduler().callSyncMethod(plugin, () ->
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmdStr)
-            ).get();
+            boolean success = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmdStr); // already on the main thread (ClientHandler dispatches via callSyncMethod)
             return CommandResult.success(success);
         } catch (Exception e) {
             return CommandResult.error("Failed to place template: " + e.getMessage());
@@ -3336,9 +3633,7 @@ public class CommandHandler {
         try {
             final String cmd = "spreadplayers " + centerX + " " + centerZ + " " +
                 spreadDistance + " " + maxRange + " false " + targets;
-            boolean success = Bukkit.getScheduler().callSyncMethod(plugin, () ->
-                Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd)
-            ).get();
+            boolean success = Bukkit.dispatchCommand(Bukkit.getConsoleSender(), cmd); // already on the main thread (ClientHandler dispatches via callSyncMethod)
             return CommandResult.success(success);
         } catch (Exception e) {
             return CommandResult.error("Failed to spread players: " + e.getMessage());

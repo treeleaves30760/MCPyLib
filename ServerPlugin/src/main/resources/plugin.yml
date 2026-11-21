@@ -1,7 +1,7 @@
 name: MCPyLib
-version: '0.1.0'
+version: '${project.version}'
 main: com.mcpylib.plugin.MCPyLibPlugin
-api-version: '1.20'
+api-version: '26.1'
 author: treeleaves30760
 description: Minecraft server plugin for MCPyLib Python library
 
