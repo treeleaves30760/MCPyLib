@@ -40,7 +40,8 @@ Edit `plugins/MCPyLib/config.yml`:
 server:
   port: 65535           # TCP server port
   host: '0.0.0.0'       # Bind address
-  max-connections: 10   # Max concurrent connections
+  max-connections: 10   # Max concurrent connections (extra ones get "Server busy")
+  idle-timeout-seconds: 300  # Close idle connections (0 = never)
 
 security:
   token: ''             # Auto-generated token

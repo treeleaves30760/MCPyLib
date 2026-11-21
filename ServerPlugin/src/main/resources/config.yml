@@ -4,10 +4,14 @@
 server:
   # Port for the TCP server
   port: 65535
-  # Bind address (0.0.0.0 for all interfaces)
+  # Bind address: 0.0.0.0 = all interfaces, 127.0.0.1 = this machine only
   host: '0.0.0.0'
-  # Maximum number of concurrent connections
+  # Maximum number of concurrent connections (extra connections are rejected
+  # with a "Server busy" error instead of waiting)
   max-connections: 10
+  # Close connections idle for this many seconds (0 = never). Clients
+  # reconnect automatically on the next command.
+  idle-timeout-seconds: 300
 
 # Security settings
 security:

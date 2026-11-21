@@ -359,6 +359,7 @@ server:
   port: 65535
   host: '0.0.0.0'
   max-connections: 10
+  idle-timeout-seconds: 300
 
 security:
   token: 'auto-generated'

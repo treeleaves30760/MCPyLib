@@ -1,11 +1,15 @@
 package com.mcpylib.plugin;
 
 import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 
 public class NetworkServer {
@@ -19,6 +23,7 @@ public class NetworkServer {
     private ExecutorService executorService;
     private Thread acceptThread;
     private AtomicBoolean running;
+    private final AtomicInteger activeConnections = new AtomicInteger();
 
     public NetworkServer(MCPyLibPlugin plugin, String host, int port, int maxConnections) {
         this.plugin = plugin;
@@ -34,7 +39,10 @@ public class NetworkServer {
         }
 
         // Create server socket
-        serverSocket = new ServerSocket(port);
+        // Bind to the configured address (e.g. 127.0.0.1 to allow local clients only)
+        serverSocket = new ServerSocket();
+        serverSocket.setReuseAddress(true);
+        serverSocket.bind(new InetSocketAddress(host, port));
         executorService = Executors.newFixedThreadPool(maxConnections);
         running.set(true);
 
@@ -89,8 +97,15 @@ public class NetworkServer {
                         clientSocket.getInetAddress().getHostAddress());
                 }
 
+                // Reject instead of queueing forever when every slot is taken
+                if (activeConnections.incrementAndGet() > maxConnections) {
+                    activeConnections.decrementAndGet();
+                    Thread.startVirtualThread(() -> rejectBusy(clientSocket));
+                    continue;
+                }
+
                 // Handle connection in thread pool
-                executorService.submit(new ClientHandler(plugin, clientSocket));
+                executorService.submit(new ClientHandler(plugin, clientSocket, activeConnections::decrementAndGet));
 
             } catch (IOException e) {
                 if (running.get()) {
@@ -98,6 +113,29 @@ public class NetworkServer {
                 }
             }
         }
+    }
+
+    private void rejectBusy(Socket socket) {
+        plugin.getLogger().warning("Rejected connection from " + socket.getInetAddress().getHostAddress()
+                + ": max-connections (" + maxConnections + ") reached");
+        try (socket) {
+            // Read the client's request first so it receives a proper JSON error
+            // response instead of a connection reset.
+            socket.setSoTimeout(2000);
+            new java.io.BufferedReader(new java.io.InputStreamReader(
+                    socket.getInputStream(), StandardCharsets.UTF_8)).readLine();
+            OutputStream out = socket.getOutputStream();
+            out.write(("{\"success\":false,\"error\":\"Server busy: max-connections (" + maxConnections
+                    + ") reached. Close unused clients or raise server.max-connections.\",\"data\":null}\n")
+                    .getBytes(StandardCharsets.UTF_8));
+            out.flush();
+        } catch (IOException ignored) {
+            // client already gone
+        }
+    }
+
+    public int getActiveConnections() {
+        return activeConnections.get();
     }
 
     public boolean isRunning() {

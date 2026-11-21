@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.util.logging.Level;
 
 public class ClientHandler implements Runnable {
@@ -16,15 +17,27 @@ public class ClientHandler implements Runnable {
     private final MCPyLibPlugin plugin;
     private final Socket socket;
     private final Gson gson;
+    private final Runnable onClose;
 
-    public ClientHandler(MCPyLibPlugin plugin, Socket socket) {
+    public ClientHandler(MCPyLibPlugin plugin, Socket socket, Runnable onClose) {
         this.plugin = plugin;
         this.socket = socket;
         this.gson = new Gson();
+        this.onClose = onClose;
     }
 
     @Override
     public void run() {
+        try {
+            // Free the slot of abandoned persistent connections. Clients
+            // reconnect transparently when they find the socket closed.
+            int idleSeconds = plugin.getConfig().getInt("server.idle-timeout-seconds", 300);
+            if (idleSeconds > 0) {
+                socket.setSoTimeout(idleSeconds * 1000);
+            }
+        } catch (IOException ignored) {
+            // socket already broken; the read below will fail and clean up
+        }
         try (
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream(), "UTF-8"));
             PrintWriter out = new PrintWriter(socket.getOutputStream(), true)
@@ -74,12 +87,17 @@ public class ClientHandler implements Runnable {
                 }
             }
 
+        } catch (SocketTimeoutException e) {
+            if (plugin.getConfig().getBoolean("logging.log-connections", true)) {
+                plugin.getLogger().info("Closing idle connection: " + socket.getInetAddress().getHostAddress());
+            }
         } catch (Exception e) {
             if (plugin.getConfig().getBoolean("logging.log-connections", true)) {
                 plugin.getLogger().log(Level.INFO, "Client disconnected: " +
                     socket.getInetAddress().getHostAddress());
             }
         } finally {
+            onClose.run();
             try {
                 socket.close();
             } catch (IOException e) {

@@ -91,21 +91,22 @@ class MCPyLib:
         Raises:
             ConnectionError: If connection fails
         """
-        if self._socket is not None:
+        sock = self._socket
+        if sock is not None:
+            alive = True
             try:
                 # Test if socket is still alive by peeking
-                self._socket.setblocking(False)
+                sock.setblocking(False)
                 try:
-                    data = self._socket.recv(1, socket.MSG_PEEK)
-                    if not data:
-                        # Server closed connection
-                        self._close_socket()
+                    if not sock.recv(1, socket.MSG_PEEK):
+                        alive = False  # Server closed the connection
                 except BlockingIOError:
-                    # No data available — socket is still alive
-                    pass
+                    pass  # No data available - socket is still alive
                 finally:
-                    self._socket.settimeout(self.timeout)
+                    sock.settimeout(self.timeout)
             except (socket.error, OSError):
+                alive = False
+            if not alive:
                 self._close_socket()
 
         if self._socket is None:
@@ -178,15 +179,18 @@ class MCPyLib:
         message = json.dumps(request) + "\n"
         encoded = message.encode("utf-8")
 
-        # Try sending with persistent connection, retry once on failure
+        # Try sending with the persistent connection. Retry once, but only when a
+        # *reused* connection turned out to be stale before any response byte
+        # arrived - never after a timeout, so a command is not executed twice.
         for attempt in range(2):
+            reused = self._socket is not None
             sock = self._ensure_connected()
+            buffer = b""
             try:
                 # Send request
                 sock.sendall(encoded)
 
                 # Receive response
-                buffer = b""
                 while b"\n" not in buffer:
                     chunk = sock.recv(65536)
                     if not chunk:
@@ -206,10 +210,18 @@ class MCPyLib:
 
                 return response.get("data")
 
-            except (ConnectionError, socket.error, OSError):
+            except socket.timeout as e:
                 self._close_socket()
-                if attempt == 1:
-                    raise
+                raise ConnectionError(
+                    f"Timed out after {self.timeout}s waiting for '{action}' "
+                    "(the command may still have run on the server)"
+                ) from e
+            except (ConnectionError, socket.error, OSError) as e:
+                self._close_socket()
+                if attempt == 1 or not reused or buffer:
+                    if isinstance(e, ConnectionError):
+                        raise
+                    raise ConnectionError(f"Connection error during '{action}': {e}") from e
             except (AuthenticationError, CommandError):
                 raise
 

@@ -27,6 +27,17 @@ Targets **Minecraft 26.3** (Paper / Spigot 26.1+). Requires **Java 25**.
 - `ServerPlugin/scripts/live_smoke_test.py`: an end-to-end test of about 60 commands against a live server.
 
 ### Fixed
+- `server.host` was ignored: the socket always listened on every interface. It now
+  binds to the configured address, so `127.0.0.1` restricts it to local clients.
+- Connections beyond `max-connections` used to queue forever, and idle persistent
+  connections held their slot indefinitely. Extra connections now get a
+  `Server busy` error, and the new `server.idle-timeout-seconds` (default 300)
+  frees abandoned ones.
+- Python client: reconnecting after the server closed the connection raised
+  `AttributeError`, for example after a server restart.
+- Python client: a timed-out command was re-sent automatically and could run
+  twice (e.g. `give`). Timeouts now raise `ConnectionError`. Only a stale reused
+  connection is retried, and only before any reply byte arrives.
 - **Server freeze / watchdog crash** in `exec`, `tellraw`, `fillbiome`,
   `placeFeature`, `placeStructure`, `placeJigsaw`, `placeTemplate` and
   `spreadplayers`. These handlers waited on the main thread from the main thread.
