@@ -540,11 +540,22 @@ public class CommandHandler {
             inflater.setInput(compressed);
             ByteArrayOutputStream bos = new ByteArrayOutputStream(compressed.length * 4);
             byte[] buf = new byte[4096];
-            while (!inflater.finished()) {
-                int len = inflater.inflate(buf);
-                bos.write(buf, 0, len);
+            final long maxInflated = 256L * 1024 * 1024; // guard against zip bombs
+            try {
+                while (!inflater.finished()) {
+                    int len = inflater.inflate(buf);
+                    if (len == 0 && (inflater.needsInput() || inflater.needsDictionary())) {
+                        // Truncated/corrupt payload: would otherwise spin forever on the main thread
+                        return CommandResult.error("Invalid compressed block data (truncated or corrupt)");
+                    }
+                    bos.write(buf, 0, len);
+                    if (bos.size() > maxInflated) {
+                        return CommandResult.error("Compressed block data expands beyond 256 MB");
+                    }
+                }
+            } finally {
+                inflater.end();
             }
-            inflater.end();
             String rleString = bos.toString("UTF-8");
 
             // Parse RLE: "count1,index1,count2,index2,..."
