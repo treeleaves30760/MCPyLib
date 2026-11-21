@@ -1,0 +1,14 @@
+site_name: MCPyLib
+site_description: Control Minecraft servers (Paper/Spigot 26.1+) from Python
+repo_url: https://github.com/treeleaves30760/MCPyLib
+edit_uri: edit/main/docs/
+docs_dir: docs
+exclude_docs: requirements.txt
+theme: readthedocs
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - API Reference: api-reference.md
+  - Protocol: protocol.md
+  - Development: development.md
