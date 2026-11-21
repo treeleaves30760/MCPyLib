@@ -50,6 +50,27 @@ check("verify log axis", lambda: mc.getblock(20, Y, 22), lambda v: "oak_log" in 
 check("getblocks", lambda: mc.getblocks(-8, Y + 5, -8, -6, Y + 6, -6), lambda v: v is not None)
 check("clone", lambda: mc.clone(0, Y, 0, 2, Y + 1, 2, 50, Y, 50))
 
+
+
+def state_is(x, y, z, block_with_state):
+    """True if the block matches a vanilla state predicate (checked in-game)."""
+    mc.setblock(0, 150, 0, "minecraft:air")
+    mc.exec(f"execute if block {x} {y} {z} {block_with_state} run setblock 0 150 0 minecraft:gold_block")
+    return "gold_block" in str(mc.getblock(0, 150, 0))
+
+
+S = 140
+mc.fill(0, S - 1, 0, 12, S - 1, 12, "minecraft:stone")
+check("state: slab type=double", lambda: mc.setblock(2, S, 1, "oak_slab", block_state={"type": "double"}) and state_is(2, S, 1, "minecraft:oak_slab[type=double]"), lambda v: v is True)
+check("state: sign rotation=8", lambda: mc.setblock(1, S, 1, "oak_sign", block_state={"rotation": "8"}) and state_is(1, S, 1, "minecraft:oak_sign[rotation=8]"), lambda v: v is True)
+check("state: stairs east/top", lambda: mc.setblock(4, S, 1, "oak_stairs", block_state={"facing": "east", "half": "top"}) and state_is(4, S, 1, "minecraft:oak_stairs[facing=east,half=top]"), lambda v: v is True)
+check("state: alias rotation=NORTH", lambda: mc.setblock(5, S, 1, "oak_sign", block_state={"rotation": "NORTH"}) and state_is(5, S, 1, "minecraft:oak_sign[rotation=8]"), lambda v: v is True)
+check("state: edit palette type=top", lambda: mc.edit(10, S, 10, [[[{"block": "oak_slab", "block_state": {"type": "top"}}]]]) and state_is(10, S, 10, "minecraft:oak_slab[type=top]"), lambda v: v is True)
+check("state: bad property rejected", lambda: mc.setblock(6, S, 1, "stone", block_state={"color": "red"}), lambda v: False)
+results[-1] = (results[-1][0], "Unsupported property" in results[-1][3], results[-1][2], results[-1][3])
+check("item id rejected as block", lambda: mc.setblock(7, S, 1, "brick"), lambda v: False)
+results[-1] = (results[-1][0], "item, not a placeable block" in results[-1][3], results[-1][2], results[-1][3])
+
 check("time set", lambda: mc.time("set", 6000))
 check("weather", lambda: mc.weather("clear"))
 check("difficulty", lambda: mc.difficulty("normal"))

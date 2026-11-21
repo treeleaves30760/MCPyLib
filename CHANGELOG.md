@@ -27,6 +27,17 @@ Targets **Minecraft 26.3** (Paper / Spigot 26.1+). Requires **Java 25**.
 - `ServerPlugin/scripts/live_smoke_test.py`: an end-to-end test of about 60 commands against a live server.
 
 ### Fixed
+- **Block states:** only 8 hand-coded properties (facing, half, axis, …)
+  ever worked. The generic path passed `key=value` without brackets and
+  discarded the result of `BlockData#merge`, which returns a new instance.
+  Every vanilla property now works (`type=double`, `rotation=8`, `part=head`,
+  `power=15`, …), and Bukkit enum aliases such as `rotation=NORTH` still work.
+  Unknown properties return a clear error.
+- Item ids such as `brick` are rejected as blocks in `setblock`, `fill` and `edit`,
+  with an "item, not a placeable block" hint. Previously they failed with vague errors
+  or were skipped silently.
+- Bulk `edit` with a truncated or corrupt compressed payload froze the server
+  (infinite inflate loop on the main thread). Inflated size is now also capped at 256 MB.
 - `server.host` was ignored: the socket always listened on every interface. It now
   binds to the configured address, so `127.0.0.1` restricts it to local clients.
 - Connections beyond `max-connections` used to queue forever, and idle persistent

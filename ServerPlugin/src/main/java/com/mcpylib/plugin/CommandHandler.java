@@ -206,9 +206,9 @@ public class CommandHandler {
         String blockName = params.get("block").getAsString();
 
         // Parse material
-        Material material = parseMaterial(blockName);
+        Material material = parseBlockMaterial(blockName);
         if (material == null) {
-            return CommandResult.error("Invalid block type: " + blockName);
+            return CommandResult.error("Invalid block type: " + blockName + itemHint(blockName));
         }
 
         // Get world (use overworld by default)
@@ -224,16 +224,10 @@ public class CommandHandler {
                 JsonObject blockState = params.getAsJsonObject("block_state");
                 BlockData blockData = block.getBlockData();
 
-                // Apply each state property
-                for (Map.Entry<String, JsonElement> entry : blockState.entrySet()) {
-                    String property = entry.getKey();
-                    String value = entry.getValue().getAsString();
-
-                    try {
-                        applyBlockState(blockData, property, value);
-                    } catch (Exception e) {
-                        return CommandResult.error("Failed to set block state '" + property + "': " + e.getMessage());
-                    }
+                try {
+                    blockData = applyBlockStates(blockData, blockState);
+                } catch (Exception e) {
+                    return CommandResult.error("Failed to set block state: " + e.getMessage());
                 }
 
                 // Update block data
@@ -259,7 +253,41 @@ public class CommandHandler {
         }
     }
 
-    private static void applyBlockState(BlockData blockData, String property, String value) {
+    /**
+     * Applies block-state properties and returns the resulting BlockData.
+     * Note: {@link BlockData#merge} returns a NEW instance - its result must be used.
+     * Vanilla state syntax is tried first (covers every property of every block:
+     * "rotation=8", "type=double", "part=head", "power=15", ...); Bukkit enum
+     * aliases (e.g. rotation=NORTH) are the per-property fallback.
+     */
+    private static BlockData applyBlockStates(BlockData blockData, JsonObject states) {
+        StringBuilder all = new StringBuilder("[");
+        for (Map.Entry<String, JsonElement> entry : states.entrySet()) {
+            if (all.length() > 1) all.append(',');
+            all.append(entry.getKey().toLowerCase(java.util.Locale.ROOT)).append('=')
+               .append(entry.getValue().getAsString().toLowerCase(java.util.Locale.ROOT));
+        }
+        all.append(']');
+        try {
+            return blockData.merge(Bukkit.createBlockData(blockData.getMaterial(), all.toString()));
+        } catch (IllegalArgumentException ignored) {
+            // at least one property needs an alias - apply them one by one
+        }
+        BlockData result = blockData.clone();
+        for (Map.Entry<String, JsonElement> entry : states.entrySet()) {
+            result = applyBlockState(result, entry.getKey(), entry.getValue().getAsString());
+        }
+        return result;
+    }
+
+    private static BlockData applyBlockState(BlockData blockData, String property, String value) {
+        try {
+            String state = "[" + property.toLowerCase(java.util.Locale.ROOT) + "="
+                    + value.toLowerCase(java.util.Locale.ROOT) + "]";
+            return blockData.merge(Bukkit.createBlockData(blockData.getMaterial(), state));
+        } catch (IllegalArgumentException ignored) {
+            // fall through to the Bukkit-enum aliases below (e.g. rotation=NORTH)
+        }
         switch (property.toLowerCase()) {
             case "facing":
                 if (blockData instanceof Directional) {
@@ -321,16 +349,10 @@ public class CommandHandler {
                 break;
 
             default:
-                // Try to use the generic BlockData merge method
-                String stateString = property + "=" + value;
-                try {
-                    BlockData newData = Bukkit.createBlockData(blockData.getMaterial(), stateString);
-                    blockData.merge(newData);
-                } catch (Exception e) {
-                    throw new IllegalArgumentException("Unsupported property: " + property);
-                }
-                break;
+                throw new IllegalArgumentException("Unsupported property '" + property + "=" + value
+                        + "' for " + blockData.getMaterial().getKey());
         }
+        return blockData;
     }
 
     @SuppressWarnings("deprecation")
@@ -468,9 +490,9 @@ public class CommandHandler {
         String blockName = params.get("block").getAsString();
 
         // Parse material
-        Material material = parseMaterial(blockName);
+        Material material = parseBlockMaterial(blockName);
         if (material == null) {
-            return CommandResult.error("Invalid block type: " + blockName);
+            return CommandResult.error("Invalid block type: " + blockName + itemHint(blockName));
         }
 
         // Get world
@@ -572,7 +594,7 @@ public class CommandHandler {
                 if (elem.isJsonNull()) {
                     paletteIsNull[i] = true;
                 } else if (elem.isJsonPrimitive() && elem.getAsJsonPrimitive().isString()) {
-                    Material mat = parseMaterial(elem.getAsString());
+                    Material mat = parseBlockMaterial(elem.getAsString());
                     if (mat == null) {
                         return CommandResult.error("Invalid block type in palette[" + i + "]: " + elem.getAsString());
                     }
@@ -582,7 +604,7 @@ public class CommandHandler {
                     if (!obj.has("block")) {
                         return CommandResult.error("Missing 'block' field in palette[" + i + "]");
                     }
-                    Material mat = parseMaterial(obj.get("block").getAsString());
+                    Material mat = parseBlockMaterial(obj.get("block").getAsString());
                     if (mat == null) {
                         return CommandResult.error("Invalid block type in palette[" + i + "]: " + obj.get("block").getAsString());
                     }
@@ -654,9 +676,7 @@ public class CommandHandler {
                         if (blockData.has("block_state")) {
                             JsonObject blockState = blockData.getAsJsonObject("block_state");
                             BlockData bukkitBlockData = block.getBlockData();
-                            for (Map.Entry<String, JsonElement> entry : blockState.entrySet()) {
-                                applyBlockState(bukkitBlockData, entry.getKey(), entry.getValue().getAsString());
-                            }
+                            bukkitBlockData = applyBlockStates(bukkitBlockData, blockState);
                             block.setBlockData(bukkitBlockData);
                         }
 
@@ -692,9 +712,7 @@ public class CommandHandler {
                         if (blockData.has("block_state")) {
                             JsonObject blockState = blockData.getAsJsonObject("block_state");
                             BlockData bukkitBlockData = block.getBlockData();
-                            for (Map.Entry<String, JsonElement> entry : blockState.entrySet()) {
-                                applyBlockState(bukkitBlockData, entry.getKey(), entry.getValue().getAsString());
-                            }
+                            bukkitBlockData = applyBlockStates(bukkitBlockData, blockState);
                             block.setBlockData(bukkitBlockData);
                         }
 
@@ -758,7 +776,7 @@ public class CommandHandler {
 
                         if (blockElement.isJsonPrimitive() && blockElement.getAsJsonPrimitive().isString()) {
                             String blockName = blockElement.getAsString();
-                            Material material = parseMaterial(blockName);
+                            Material material = parseBlockMaterial(blockName);
                             if (material == null) {
                                 return CommandResult.error("Invalid block type at [" + dx + "][" + dy + "][" + dz + "]: " + blockName);
                             }
@@ -772,7 +790,7 @@ public class CommandHandler {
                             }
 
                             String blockName = blockDataObj.get("block").getAsString();
-                            Material material = parseMaterial(blockName);
+                            Material material = parseBlockMaterial(blockName);
                             if (material == null) {
                                 return CommandResult.error("Invalid block type at [" + dx + "][" + dy + "][" + dz + "]: " + blockName);
                             }
@@ -782,12 +800,10 @@ public class CommandHandler {
                             if (blockDataObj.has("block_state")) {
                                 JsonObject blockState = blockDataObj.getAsJsonObject("block_state");
                                 BlockData bukkitBlockData = block.getBlockData();
-                                for (Map.Entry<String, JsonElement> entry : blockState.entrySet()) {
-                                    try {
-                                        applyBlockState(bukkitBlockData, entry.getKey(), entry.getValue().getAsString());
-                                    } catch (Exception e) {
-                                        return CommandResult.error("Failed to set block state at [" + dx + "][" + dy + "][" + dz + "]: " + e.getMessage());
-                                    }
+                                try {
+                                    bukkitBlockData = applyBlockStates(bukkitBlockData, blockState);
+                                } catch (Exception e) {
+                                    return CommandResult.error("Failed to set block state at [" + dx + "][" + dy + "][" + dz + "]: " + e.getMessage());
                                 }
                                 block.setBlockData(bukkitBlockData);
                             }
@@ -1210,6 +1226,18 @@ public class CommandHandler {
         } catch (Exception e) {
             return CommandResult.error("Failed to clone region: " + e.getMessage());
         }
+    }
+
+    /** Like {@link #parseMaterial} but only accepts placeable blocks (rejects items such as "brick"). */
+    private static Material parseBlockMaterial(String blockName) {
+        Material material = parseMaterial(blockName);
+        return material != null && material.isBlock() ? material : null;
+    }
+
+    /** Extra hint for block errors when the id names an item instead of a block. */
+    private static String itemHint(String name) {
+        Material material = parseMaterial(name);
+        return material != null && !material.isBlock() ? " (this is an item, not a placeable block)" : "";
     }
 
     private static Material parseMaterial(String blockName) {
