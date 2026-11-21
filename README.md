@@ -30,11 +30,25 @@ MCPyLib enables programmatic control of Minecraft servers via Python. It consist
 - **Particles & Spawn** - Create particle effects and set spawn points
 - **Server Utilities** - Execute raw commands, spread players, list online players, manage advancements
 
+## AI Integration
+
+Let AI agents build in Minecraft for you:
+
+- **[MCPyLib-mcp](https://github.com/treeleaves30760/MCPyLib-mcp)**: an MCP (Model Context Protocol) server, so Claude Code, Claude Desktop, Cursor, VS Code and other MCP clients can call MCPyLib as tools:
+  ```bash
+  claude mcp add mcpylib -e MCPYLIB_TOKEN=<token> -- uvx --from git+https://github.com/treeleaves30760/MCPyLib-mcp mcpylib-mcp
+  ```
+- **[MCPyLib-skills](https://github.com/treeleaves30760/MCPyLib-skills)**: Agent Skills that teach AI coding agents the MCPyLib API, building recipes and mini-game patterns:
+  ```
+  /plugin marketplace add treeleaves30760/MCPyLib-skills
+  ```
+- **Website**: https://treeleaves30760.github.io/MCPyLib-website/ (docs, showcase, and `llms.txt` for agents)
+
 ## Quick Start
 
 ### Server Setup
 
-1. Place `MCPyLib-Plugin-1.1.0.jar` in your server's `plugins` folder
+1. Place `MCPyLib-Plugin-1.2.0.jar` in your server's `plugins` folder
 2. Start or restart your Minecraft server
 3. Generate an authentication token:
 
@@ -529,8 +543,8 @@ See the [`examples`](examples/) directory for complete examples including:
 | Component        | Requirement          |
 | ---------------- | -------------------- |
 | Python           | 3.11+                |
-| Minecraft Server | Spigot/Paper 1.21.4+ |
-| Java             | 21+                  |
+| Minecraft Server | Spigot/Paper 26.1+ (tested build target: 26.3) |
+| Java             | 25+                  |
 
 ## Error Handling
 
@@ -561,10 +575,12 @@ except CommandError as e:
 - [API Reference](docs/api-reference.md)
 - [Protocol Specification](docs/protocol.md)
 - [Development Guide](docs/development.md)
+- [Changelog](CHANGELOG.md)
+- [Website](https://treeleaves30760.github.io/MCPyLib-website/)
 
 ## Project Information
 
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Author:** treeleaves30760
 **PyPI:** https://pypi.org/project/mcpylib/
 **Repository:** https://github.com/treeleaves30760/MCPyLib

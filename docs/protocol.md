@@ -318,7 +318,7 @@ The following table lists all supported actions and their parameters:
 | `getblocks` | `x1`, `y1`, `z1`, `x2`, `y2`, `z2` | 3D array of block type strings `[x][y][z]` |
 | `fill` | `x1`, `y1`, `z1`, `x2`, `y2`, `z2`, `block` | Blocks affected (int) |
 | `clone` | `x1`, `y1`, `z1`, `x2`, `y2`, `z2`, `dest_x`, `dest_y`, `dest_z` | Blocks cloned (int) |
-| `bulkEdit` | `x`, `y`, `z`, `blocks` (3D array) | Blocks placed (int) |
+| `bulkEdit` | `x`, `y`, `z`, `blocks` (3D array) OR compressed format (see below) | Blocks placed (int) |
 | `getPos` | `username` | `[x, y, z]` array |
 | `teleport` | `username`, `x`, `y`, `z`, `yaw?`, `pitch?` | `true` |
 | `gamemode` | `username`, `mode` | `true` |
@@ -385,6 +385,53 @@ The following table lists all supported actions and their parameters:
 | `list` | (none) | `{online_count, max_players, players}` |
 
 *Parameters marked with `?` are optional.*
+
+### bulkEdit (Compressed Format)
+
+The `bulkEdit` command supports an optimized compressed encoding that drastically reduces payload size and improves server-side parsing performance. The Python client automatically uses this format.
+
+**Request (Compressed):**
+```json
+{
+  "token": "your_token",
+  "action": "bulkEdit",
+  "params": {
+    "x": 100,
+    "y": 64,
+    "z": 200,
+    "sizeX": 10,
+    "sizeY": 5,
+    "sizeZ": 10,
+    "palette": [null, "stone", "cobblestone", {"block": "chest", "block_state": {"facing": "north"}}],
+    "data": "eJxLzs8FAA...",
+    "encoding": "palette_rle_zlib"
+  }
+}
+```
+
+**Compressed Format Parameters:**
+- `x`, `y`, `z` (integers): Starting coordinates (same as legacy)
+- `sizeX`, `sizeY`, `sizeZ` (integers): Dimensions of the 3D block array
+- `palette` (array): Ordered list of unique block values. Each entry is one of:
+  - `null` — skip position (leave unchanged)
+  - `string` — block name (e.g., `"stone"`, `"minecraft:stone"`)
+  - `object` — complex block with `block`, optional `block_state`, optional `nbt`
+- `data` (string): Base64-encoded, zlib-compressed, RLE-encoded palette indices
+- `encoding` (string): Must be `"palette_rle_zlib"`
+
+**Encoding Pipeline:**
+1. Flatten the 3D block array to 1D in x→y→z order (row-major)
+2. Map each block to its palette index
+3. RLE compress: consecutive identical indices become `count,index` pairs
+4. Serialize RLE as comma-separated UTF-8 string (e.g., `"500,0,50,1,200,2"`)
+5. zlib compress the string
+6. Base64 encode the compressed bytes
+
+**Format Detection:**
+The server detects the format by checking for the `encoding` field. If absent, the legacy 3D JSON array format is used (backward compatible).
+
+**Performance:**
+When the server internals can be reached (resolved once at runtime via reflection, so no server jar is needed at build time; Minecraft 26.1+ ships unobfuscated so this works on both Paper and Spigot), the server uses direct chunk section writes for plain material blocks, bypassing Bukkit API overhead. Complex blocks with `block_state` or `nbt` fall back to Bukkit API. If NMS is unavailable, all blocks use Bukkit API.
 
 ## Error Handling
 

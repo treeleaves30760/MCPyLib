@@ -559,7 +559,7 @@ gamerule(rule: str, value: str = None) -> str
 Get or set a game rule.
 
 **Parameters:**
-- `rule` (str): Game rule name (e.g., `"doDaylightCycle"`, `"keepInventory"`)
+- `rule` (str): Game rule name. Minecraft 1.21.11+ uses snake_case registry names (e.g., `"keep_inventory"`, `"minecraft:mob_griefing"`); legacy camelCase names such as `"keepInventory"` are still accepted
 - `value` (str, optional): Value to set. If `None`, returns current value.
 
 **Returns:** `str` -- Current value of the game rule
@@ -570,10 +570,10 @@ Get or set a game rule.
 mc.gamerule("doDaylightCycle", "false")
 
 # Enable keep inventory
-mc.gamerule("keepInventory", "true")
+mc.gamerule("keep_inventory", "true")
 
 # Query a rule
-value = mc.gamerule("mobGriefing")
+value = mc.gamerule("mob_griefing")
 print(f"mobGriefing: {value}")
 ```
 

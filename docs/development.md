@@ -49,9 +49,9 @@ minepy/
 - pip or uv
 
 **Server Plugin:**
-- Java 17 or higher
-- Maven 3.6+
-- Spigot/Paper server for testing
+- Java 25 or higher (e.g. Eclipse Temurin 25)
+- Maven is optional: the repo ships the Maven Wrapper (`./mvnw` / `mvnw.cmd`), which downloads Maven 3.9.16 on first use
+- Paper or Spigot 26.1+ server for testing
 
 ### Build Python Library
 
@@ -72,8 +72,10 @@ python -m build
 ```
 
 Creates packages in `dist/`:
-- `mcpylib-0.1.0-py3-none-any.whl`
-- `mcpylib-0.1.0.tar.gz`
+- `mcpylib-1.2.0-py3-none-any.whl`
+- `mcpylib-1.2.0.tar.gz`
+
+Or with uv: `uv build`
 
 #### Using uv
 
@@ -86,30 +88,53 @@ uv pip install -e .
 
 ```bash
 cd ServerPlugin
-mvn clean package
+./mvnw clean package          # Windows: mvnw.cmd clean package
 ```
 
-Output: `ServerPlugin/target/MCPyLib-Plugin-0.1.0.jar`
+Output: `ServerPlugin/target/MCPyLib-Plugin-1.2.0.jar`
 
-This creates a shaded JAR with all dependencies included.
+This creates a shaded JAR with all dependencies included. It is compiled
+against the Spigot API and runs on both Spigot and Paper.
+
+#### Paper / Spigot compatibility checks
+
+Paper and Spigot have diverged slightly. In 26.x, for example,
+`org.bukkit.GameRule` is an interface in Spigot but a class in Paper, and
+`RegistryAware#getKeyOrThrow()` only exists in Spigot. A call that compiles
+against one API can then fail on the other at runtime (`IncompatibleClassChangeError`
+or `NoSuchMethodError`). CI runs these checks on every push:
+
+```bash
+./mvnw -Ppaper clean compile   # every API method used must exist in Paper
+./mvnw clean package           # normal Spigot build
+python -I scripts/check_paper_abi.py "$(which javap)" target/classes   ~/.m2/repository/io/papermc/paper/paper-api/<version>/paper-api-<version>.jar
+```
+
+#### NMS fast path
+
+`NMSBlockPlacer` writes blocks straight into chunk sections for bulk `edit`
+calls. It reaches server internals through reflection only, resolved once at
+startup, so no BuildTools server jar is needed at compile time. Minecraft 26.1+
+ships unobfuscated, so the same Mojang names work on Paper and Spigot. If any
+lookup fails, the plugin logs a warning and falls back to the Bukkit API.
 
 #### Build Troubleshooting
 
-**Java version issues:**
+**Java version issues** (`release version 25 not supported`):
 ```bash
-export JAVA_HOME=/path/to/jdk-17
-mvn clean package
+export JAVA_HOME=/path/to/jdk-25
+./mvnw clean package
 ```
 
 **Maven memory issues:**
 ```bash
 export MAVEN_OPTS="-Xmx1024m"
-mvn clean package
+./mvnw clean package
 ```
 
 **Clean build:**
 ```bash
-mvn clean install -U
+./mvnw clean install -U
 ```
 
 ## Development Workflow
@@ -130,16 +155,13 @@ mvn clean install -U
 2. Rebuild plugin:
    ```bash
    cd ServerPlugin
-   mvn clean package
+   ./mvnw clean package
    ```
 3. Copy JAR to test server:
    ```bash
-   cp target/MCPyLib-Plugin-0.1.0.jar /path/to/server/plugins/
+   cp target/MCPyLib-Plugin-1.2.0.jar /path/to/server/plugins/
    ```
-4. Reload server:
-   ```
-   /reload confirm
-   ```
+4. Restart the server (`/reload` is unsupported on modern Paper)
 
 ### Testing Integration
 
@@ -154,6 +176,13 @@ mvn clean install -U
    print("Success!")
    ```
 4. Verify in-game
+5. For a full end-to-end check, run the live smoke test against a **throwaway**
+   test server. It exercises about 60 commands, works with no players online,
+   and modifies the world near (0, 100, 0):
+   ```bash
+   cd MCPyLib
+   uv run python ../ServerPlugin/scripts/live_smoke_test.py <token>
+   ```
 
 ## Architecture Overview
 
@@ -419,8 +448,8 @@ build-backend = "setuptools.build_meta"
 ### Server Plugin
 
 **Runtime:**
-- Spigot/Paper API 1.21.4+ (provided scope)
-- Gson 2.10.1 (shaded)
+- Spigot/Paper API 26.1+ (provided scope, built against 26.3)
+- Gson 2.15.0 (shaded)
 
 **Build:**
 ```xml
@@ -428,7 +457,7 @@ build-backend = "setuptools.build_meta"
     <dependency>
         <groupId>org.spigotmc</groupId>
         <artifactId>spigot-api</artifactId>
-        <version>1.21.4-R0.1-SNAPSHOT</version>
+        <version>26.3-R0.1-SNAPSHOT</version>
         <scope>provided</scope>
     </dependency>
     <dependency>
@@ -473,7 +502,7 @@ python -m build
 
 # Java
 cd ServerPlugin
-mvn clean package
+./mvnw clean package
 ```
 
 ### 3. Test

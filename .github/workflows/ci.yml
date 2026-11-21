@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  plugin:
+    name: Plugin (Java 25, Spigot + Paper API)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ServerPlugin
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+      - name: Compile against Paper API
+        run: ./mvnw -B -Ppaper clean compile
+      - name: Build against Spigot API
+        run: ./mvnw -B clean package
+      - name: Paper binary-compatibility check
+        run: |
+          PAPER_JAR=$(ls ~/.m2/repository/io/papermc/paper/paper-api/*/paper-api-*.jar | head -1)
+          python3 -I scripts/check_paper_abi.py "$(which javap)" target/classes "$PAPER_JAR"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: MCPyLib-Plugin
+          path: ServerPlugin/target/MCPyLib-Plugin-*.jar
+          if-no-files-found: error
+
+  python:
+    name: Python package
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: MCPyLib
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+      - name: Build sdist + wheel
+        run: uv build
+      - name: Import check
+        run: uv run python -c "import mcpylib; print(mcpylib.__version__)"
