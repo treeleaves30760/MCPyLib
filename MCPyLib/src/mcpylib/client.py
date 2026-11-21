@@ -241,8 +241,11 @@ class MCPyLib:
             y: Y coordinate
             z: Z coordinate
             block_name: Block type (e.g., "minecraft:stone")
-            block_state: Optional block state properties (e.g., {"facing": "north", "half": "bottom"})
-            nbt: Optional NBT data for block entities (e.g., {"Items": [...]})
+            block_state: Optional block state properties (e.g., {"facing": "north", "half": "bottom"}).
+                Any vanilla property of the block is accepted.
+            nbt: Optional block entity data. Only two keys are applied: "CustomName"
+                (plain text, for containers such as chests) and "Text1"-"Text4"
+                (sign lines). Other keys are ignored.
 
         Returns:
             1 if successful
@@ -257,7 +260,7 @@ class MCPyLib:
             1
             >>> mc.setblock(100, 64, 200, "minecraft:oak_stairs", block_state={"facing": "north", "half": "bottom"})
             1
-            >>> mc.setblock(100, 64, 200, "minecraft:chest", nbt={"CustomName": '{"text":"My Chest"}'})
+            >>> mc.setblock(100, 64, 200, "minecraft:chest", nbt={"CustomName": "My Chest"})
             1
         """
         params = {
@@ -378,8 +381,8 @@ class MCPyLib:
             CommandError: If command execution fails
 
         Example:
-            >>> mc.fill(100, 64, 200, 110, 74, 210, "minecraft:glass")
-            1100
+            >>> mc.fill(100, 64, 200, 110, 74, 210, "minecraft:glass")  # 11x11x11, corners inclusive
+            1331
         """
         params = {
             "x1": x1,
@@ -606,8 +609,14 @@ class MCPyLib:
     def kill(self, selector: str) -> int:
         """Remove entities from the world
 
+        Only three selector forms are understood (vanilla selectors such as
+        "@e[type=zombie]" or UUIDs are rejected). "all" and entity types act on
+        the first (main) world and remove at most 1000 entities per call.
+
         Args:
-            selector: Entity selector ("all", entity type, or "player:username")
+            selector: "all" (every non-player entity, including dropped items,
+                armor stands and item frames), an entity type such as "zombie",
+                or "player:username" (sets that player's health to 0)
 
         Returns:
             Number of entities killed
@@ -664,15 +673,18 @@ class MCPyLib:
             Status dictionary containing:
                 - uuid: Entity UUID
                 - type: Entity type (e.g., "minecraft:zombie")
-                - custom_name: Custom name or None
+                - custom_name: Custom name (key omitted when the entity has none)
                 - is_valid: Whether entity is valid
                 - is_dead: Whether entity is dead
                 - position: {x, y, z} coordinates
                 - velocity: {x, y, z} velocity vector
                 - world: World name
-                - health: Current health (LivingEntity only, None otherwise)
-                - max_health: Maximum health (LivingEntity only, None otherwise)
-                - has_ai: Whether AI is enabled (LivingEntity only, None otherwise)
+                - health: Current health (LivingEntity only, key omitted otherwise)
+                - max_health: Maximum health (LivingEntity only, key omitted otherwise)
+                - has_ai: Whether AI is enabled (LivingEntity only, key omitted otherwise)
+
+            The server leaves out keys whose value would be null, so use
+            status.get("custom_name") for the optional ones.
 
         Raises:
             ConnectionError: If connection fails
@@ -915,13 +927,14 @@ class MCPyLib:
             entity_uuid: Entity UUID string
 
         Returns:
-            Equipment dictionary with keys:
-                - helmet: Item string or None
-                - chestplate: Item string or None
-                - leggings: Item string or None
-                - boots: Item string or None
-                - main_hand: Item string or None
-                - off_hand: Item string or None
+            Equipment dictionary with these keys (item ids such as
+            "minecraft:diamond_helmet"); empty slots are left out:
+                - helmet
+                - chestplate
+                - leggings
+                - boots
+                - main_hand
+                - off_hand
 
         Raises:
             ConnectionError: If connection fails
@@ -931,7 +944,7 @@ class MCPyLib:
         Example:
             >>> uuid = mc.summon("zombie", 100, 64, 200)
             >>> equipment = mc.getEntityEquipment(uuid)
-            >>> print(f"Helmet: {equipment['helmet']}")
+            >>> print(f"Helmet: {equipment.get('helmet')}")  # None if no helmet
         """
         params = {
             "uuid": entity_uuid
@@ -994,7 +1007,8 @@ class MCPyLib:
                 - level: Villager level (1-5)
                 - trades: List of trade dictionaries, each containing:
                     - buy1: {"item": str, "amount": int}
-                    - buy2: {"item": str, "amount": int} or None
+                    - buy2: {"item": str, "amount": int} (only present when the
+                      trade has a second ingredient)
                     - sell: {"item": str, "amount": int}
                     - uses: Current number of uses
                     - max_uses: Maximum number of uses
@@ -1113,8 +1127,8 @@ class MCPyLib:
             CommandError: If region too large (max 32768 blocks)
 
         Example:
-            >>> mc.clone(0, 64, 0, 10, 74, 10, 20, 64, 0)
-            1100
+            >>> mc.clone(0, 64, 0, 10, 74, 10, 20, 64, 0)  # 11x11x11, corners inclusive
+            1331
         """
         params = {
             "x1": x1,
@@ -1147,11 +1161,11 @@ class MCPyLib:
                     {
                         "block": "minecraft:chest",
                         "block_state": {"facing": "north"},  # Optional
-                        "nbt": {"CustomName": '{"text":"Storage"}'}  # Optional
+                        "nbt": {"CustomName": "Storage"}  # Optional, same keys as setblock()
                     }
 
         Returns:
-            Number of blocks placed
+            Number of blocks placed (None entries are not counted)
 
         Raises:
             ConnectionError: If connection fails
@@ -1173,7 +1187,7 @@ class MCPyLib:
             ...     [[{
             ...         "block": "minecraft:chest",
             ...         "block_state": {"facing": "north"},
-            ...         "nbt": {"CustomName": '{"text":"Loot"}'}
+            ...         "nbt": {"CustomName": "Loot"}
             ...     }, "stone"], ["diamond_block", "gold_block"]]
             ... ]
             >>> mc.edit(100, 64, 200, blocks)
@@ -1192,7 +1206,7 @@ class MCPyLib:
             >>> # Roof
             >>> blocks[:, 4, :] = "oak_planks"
             >>> mc.edit(100, 64, 200, blocks.tolist())
-            250
+            308
         """
         # Build palette: collect unique block values
         palette_map = {}  # value_key -> palette_index
@@ -1265,11 +1279,15 @@ class MCPyLib:
         A universal command executor that can run any Minecraft command.
         Useful for commands not yet wrapped as dedicated methods.
 
+        The command runs as the server console. Its output (including vanilla
+        errors such as "No player was found") only appears in the server log.
+
         Args:
             command: The command to execute (with or without leading /)
 
         Returns:
-            True if the command executed successfully
+            True if the server found and ran the command (even if the command
+            itself reported a failure), False if the command does not exist
 
         Raises:
             ConnectionError: If connection fails
@@ -1379,7 +1397,9 @@ class MCPyLib:
         Args:
             username: Player username
             action: Action to perform ("add", "set", or "query")
-            amount: Amount of XP points or levels
+            amount: Amount of XP points or levels. Note that "set" with
+                target="points" only sets the progress bar within the current
+                level (amount / points needed for the next level, clamped to 0-1).
             target: Target type ("points" or "levels")
 
         Returns:
@@ -1500,12 +1520,16 @@ class MCPyLib:
     def tellraw(self, username: str, json_text: str) -> bool:
         """Send a raw JSON text message to a player
 
+        The request is run as the vanilla ``tellraw`` command, so ``username``
+        may also be a target selector such as "@a".
+
         Args:
-            username: Player username
-            json_text: JSON text component string
+            username: Player username (or a target selector)
+            json_text: JSON text component as a string (not a dict or list)
 
         Returns:
-            True if successful
+            True once the command was dispatched (an unknown player is only
+            reported in the server log)
 
         Raises:
             ConnectionError: If connection fails
@@ -1600,8 +1624,9 @@ class MCPyLib:
 
         Args:
             username: Player username
-            sound: Specific sound to stop, or None to stop all
-            source: Sound source category to stop, or None for all sources
+            sound: Specific sound to stop, or None to stop all sounds
+            source: Sound category of ``sound`` (only used together with
+                ``sound``; without a sound, all sounds stop)
 
         Returns:
             True if successful
@@ -1628,6 +1653,9 @@ class MCPyLib:
                  count: int = 1, dx: float = 0, dy: float = 0, dz: float = 0,
                  speed: float = 0) -> bool:
         """Spawn particles at a location
+
+        Particles that need extra data (such as "dust", "block" or "item") are
+        not supported and raise CommandError.
 
         Args:
             particle_type: Particle type (e.g., "flame", "heart", "minecraft:smoke")
@@ -1736,11 +1764,11 @@ class MCPyLib:
 
         Example:
             >>> mc.worldborder("get")
-            {'size': 60000000, 'center_x': 0, 'center_z': 0, ...}
+            {'size': 59999968.0, 'center_x': 0.0, 'center_z': 0.0, 'damage_amount': 0.2, 'damage_buffer': 5.0, 'warning_distance': 5, 'warning_time': 15}
             >>> mc.worldborder("set", value=1000, time=10)
-            {'size': 1000}
+            {'size': 1000.0}
             >>> mc.worldborder("center", x=100, z=200)
-            {'center_x': 100, 'center_z': 200}
+            {'center_x': 100.0, 'center_z': 200.0}
         """
         params = {"action": action}
         if value is not None:
@@ -2040,9 +2068,13 @@ class MCPyLib:
                 visible: bool = None, username: str = None) -> dict:
         """Manage boss bars
 
+        Bars are kept in the plugin's memory (not vanilla /bossbar ids), so they
+        disappear when the server restarts. On "add", an unknown color or style
+        falls back to WHITE / SOLID; on "set" it raises CommandError.
+
         Args:
             action: Action ("add", "remove", "set", "addplayer", "removeplayer", "get", "list")
-            bar_id: Boss bar ID
+            bar_id: Boss bar ID (required for every action; any value works for "list")
             title: Bar title (for add/set)
             color: Bar color (WHITE, PINK, BLUE, RED, GREEN, YELLOW, PURPLE) (for add/set)
             style: Bar style (SOLID, SEGMENTED_6, SEGMENTED_10, SEGMENTED_12, SEGMENTED_20) (for add/set)
@@ -2149,7 +2181,8 @@ class MCPyLib:
             slot: Inventory slot number (0-35 for main inventory)
 
         Returns:
-            Dictionary with item, amount, and optionally enchantments
+            Dictionary with item, amount, and (if any) enchantments. For an
+            empty slot it is {'amount': 0} (the "item" key is left out).
 
         Raises:
             ConnectionError: If connection fails
@@ -2196,13 +2229,17 @@ class MCPyLib:
     def locate(self, structure: str, x: float = None, z: float = None) -> dict:
         """Locate the nearest structure
 
+        Searches the first (main) world within 100 chunks of the start point.
+
         Args:
-            structure: Structure type (e.g., "village", "minecraft:stronghold")
+            structure: Structure key (e.g., "village_plains", "minecraft:desert_pyramid",
+                "ancient_city"). Structure tags such as "village" are not accepted.
             x: Search from X coordinate (default: world spawn)
             z: Search from Z coordinate (default: world spawn)
 
         Returns:
-            Dictionary with found (bool) and x, y, z if found
+            Dictionary with found (bool) and x, y, z if found. The coordinates
+            point at the structure's chunk; y is not a ground height (usually 0).
 
         Raises:
             ConnectionError: If connection fails
@@ -2210,8 +2247,8 @@ class MCPyLib:
             CommandError: If invalid structure type
 
         Example:
-            >>> mc.locate("village")
-            {'found': True, 'x': 256, 'y': 64, 'z': -128}
+            >>> mc.locate("village_plains")
+            {'found': True, 'x': 16, 'y': 0, 'z': 112}
         """
         params = {"structure": structure}
         if x is not None and z is not None:
@@ -2280,6 +2317,10 @@ class MCPyLib:
                   biome: str, filter_biome: str = None) -> bool:
         """Fill a region with a specific biome
 
+        Runs the vanilla ``fillbiome`` command. The region must be loaded, and
+        vanilla rejects very large regions; such failures (like "That position
+        is not loaded") are only reported in the server log.
+
         Args:
             x1: Start X coordinate
             y1: Start Y coordinate
@@ -2291,15 +2332,15 @@ class MCPyLib:
             filter_biome: Only replace this biome (optional)
 
         Returns:
-            True if successful
+            True once the command was dispatched
 
         Raises:
             ConnectionError: If connection fails
             AuthenticationError: If authentication fails
-            CommandError: If invalid biome or region too large
+            CommandError: If the biome name is invalid
 
         Example:
-            >>> mc.fillbiome(0, -64, 0, 100, 320, 100, "minecraft:plains")
+            >>> mc.fillbiome(100, 60, 200, 115, 75, 215, "minecraft:desert")
             True
         """
         params = {
@@ -2314,6 +2355,9 @@ class MCPyLib:
     def placeFeature(self, feature: str, x: int = None, y: int = None,
                      z: int = None) -> bool:
         """Place a configured feature at a location
+
+        Runs the vanilla ``place feature`` command. The target chunk must be
+        loaded; vanilla failures are only reported in the server log.
 
         Args:
             feature: Feature name (e.g., "minecraft:oak")
@@ -2344,6 +2388,9 @@ class MCPyLib:
                        z: int = None) -> bool:
         """Place a structure at a location
 
+        Runs the vanilla ``place structure`` command. The target chunk must be
+        loaded; vanilla failures are only reported in the server log.
+
         Args:
             structure: Structure name (e.g., "minecraft:village_plains")
             x: X coordinate (optional)
@@ -2372,6 +2419,9 @@ class MCPyLib:
     def placeJigsaw(self, pool: str, target: str, max_depth: int,
                     x: int = None, y: int = None, z: int = None) -> bool:
         """Place a jigsaw structure pool at a location
+
+        Runs the vanilla ``place jigsaw`` command. The target chunk must be
+        loaded; vanilla failures are only reported in the server log.
 
         Args:
             pool: Jigsaw pool name
@@ -2409,6 +2459,9 @@ class MCPyLib:
                       mirror: str = "none", integrity: float = 1.0,
                       seed: int = 0) -> bool:
         """Place a structure template at a location
+
+        Runs the vanilla ``place template`` command. The target chunk must be
+        loaded; vanilla failures are only reported in the server log.
 
         Args:
             template: Template name
@@ -2477,6 +2530,9 @@ class MCPyLib:
                       spread_distance: float, max_range: float,
                       usernames: List[str]) -> bool:
         """Spread players randomly around a center point
+
+        Runs the vanilla ``spreadplayers`` command (respectTeams = false);
+        vanilla failures are only reported in the server log.
 
         Args:
             center_x: Center X coordinate
