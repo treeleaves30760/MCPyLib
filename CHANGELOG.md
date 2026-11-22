@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.2.1 (2026-11-22)
+
+### Fixed
+- `edit()` can place doors, beds and tall plants. Blocks are now written without
+  block updates, so the two halves no longer break each other. If only one half
+  is given (a door's lower half, a bed's foot, or just `"red_bed"`), the other
+  half is added. Blocks with block entities, such as a plain `"chest"`, now go
+  through the Bukkit API so the block entity is created.
+- `setEntityRotation` reports failures. It used to return `True` even when the
+  teleport behind it was refused, for example for an entity carrying a passenger.
+  Non-player entities are now rotated in place. Players are rotated by teleport
+  and stay on their vehicle; a cancelled teleport raises `CommandError`.
+- `experience()` returned a stale `points` value after `set` or after adding
+  levels. `points` is now computed from level and progress, and `set` keeps the
+  server's total-experience counter in sync.
+
+### Added
+- `ServerPlugin/scripts/live_fix_test.py`: live regression test for these fixes
+  (needs a player online for the experience and player checks).
+
 ## 1.2.0 (2026-11-22)
 
 Targets **Minecraft 26.3** (Paper / Spigot 26.1+). Requires **Java 25**.

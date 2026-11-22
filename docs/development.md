@@ -82,8 +82,8 @@ python -m build
 ```
 
 Creates packages in `dist/`:
-- `mcpylib-1.2.0-py3-none-any.whl`
-- `mcpylib-1.2.0.tar.gz`
+- `mcpylib-1.2.1-py3-none-any.whl`
+- `mcpylib-1.2.1.tar.gz`
 
 Or with uv: `uv build`
 
@@ -101,7 +101,7 @@ cd ServerPlugin
 ./mvnw clean package          # Windows: mvnw.cmd clean package
 ```
 
-Output: `ServerPlugin/target/MCPyLib-Plugin-1.2.0.jar`
+Output: `ServerPlugin/target/MCPyLib-Plugin-1.2.1.jar`
 
 This creates a shaded JAR with all dependencies included. It is compiled
 against the Spigot API and runs on both Spigot and Paper.
@@ -169,7 +169,7 @@ export MAVEN_OPTS="-Xmx1024m"
    ```
 3. Copy JAR to test server:
    ```bash
-   cp target/MCPyLib-Plugin-1.2.0.jar /path/to/server/plugins/
+   cp target/MCPyLib-Plugin-1.2.1.jar /path/to/server/plugins/
    ```
 4. Restart the server (`/reload` is unsupported on modern Paper)
 
@@ -517,17 +517,17 @@ Keep versions synchronized across:
 
 1. **Python:** `MCPyLib/pyproject.toml`
    ```toml
-   version = "1.2.0"
+   version = "1.2.1"
    ```
 
 2. **Python package:** `MCPyLib/src/mcpylib/__init__.py`
    ```python
-   __version__ = "1.2.0"
+   __version__ = "1.2.1"
    ```
 
 3. **Java:** `ServerPlugin/pom.xml`
    ```xml
-   <version>1.2.0</version>
+   <version>1.2.1</version>
    ```
 
 `ServerPlugin/src/main/resources/plugin.yml` does not need editing: its
@@ -558,8 +558,8 @@ Test both components together on test server.
 ### 4. Create Release
 
 ```bash
-git tag -a v1.2.0 -m "Release version 1.2.0"
-git push origin v1.2.0
+git tag -a v1.2.1 -m "Release version 1.2.1"
+git push origin v1.2.1
 ```
 
 ### 5. Distribute
@@ -658,8 +658,8 @@ fail with `Error executing command: ...`.
 - [ ] WebSocket support
 - [ ] Event subscriptions
 - [ ] Batch command execution
-- [x] Persistent connections (v1.2.0)
-- [x] More Minecraft operations (72 commands in v1.2.0)
+- [x] Persistent connections (v1.2.1)
+- [x] More Minecraft operations (72 commands in v1.2.1)
 - [x] Player inventory management (getItem, setItem, clear, enchant)
 - [x] Entity manipulation (damage, ride, attribute, tags)
 - [x] World management (worldborder, forceload, fillbiome, place)

@@ -356,6 +356,68 @@ public class CommandHandler {
     }
 
     @SuppressWarnings("deprecation")
+    /** Whether {@code data} is one half of a two-block block (door, tall plant, bed, ...). */
+    private static boolean isTwoBlock(BlockData data) {
+        if (data instanceof org.bukkit.block.data.type.Bed) return true;
+        return data instanceof org.bukkit.block.data.Bisected
+                && !(data instanceof Stairs)
+                && !(data instanceof org.bukkit.block.data.type.TrapDoor);
+    }
+
+    /**
+     * True when a material can't be written straight into chunk sections: it has a
+     * block entity (chests, beds, signs, ...) or is a two-block block.
+     */
+    private static boolean needsBukkitPlacement(Material material) {
+        try {
+            BlockData data = material.createBlockData();
+            return isTwoBlock(data) || data.createBlockState() instanceof org.bukkit.block.TileState;
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    /** Place one edit entry with the Bukkit API, without block updates. */
+    private static void placeWithBukkit(Block block, Material material, JsonObject entry) {
+        BlockData data = material.createBlockData();
+        if (entry != null && entry.has("block_state")) {
+            data = applyBlockStates(data, entry.getAsJsonObject("block_state"));
+        }
+        block.setBlockData(data, false);
+        if (entry != null && entry.has("nbt")) {
+            BlockState state = block.getState();
+            applyNBTData(state, entry.getAsJsonObject("nbt"));
+            state.update(true, false);
+        }
+    }
+
+    /**
+     * If {@code block} is half of a door, tall plant or bed and the edit didn't set the
+     * other half itself, place the matching other half (replacing what is there).
+     */
+    private static void completeTwoBlock(Block block, java.util.function.Predicate<Block> setByEdit) {
+        BlockData data = block.getBlockData();
+        Block other;
+        BlockData otherData = data.clone();
+        if (data instanceof org.bukkit.block.data.type.Bed bed) {
+            boolean foot = bed.getPart() == org.bukkit.block.data.type.Bed.Part.FOOT;
+            other = block.getRelative(foot ? bed.getFacing() : bed.getFacing().getOppositeFace());
+            ((org.bukkit.block.data.type.Bed) otherData).setPart(
+                    foot ? org.bukkit.block.data.type.Bed.Part.HEAD : org.bukkit.block.data.type.Bed.Part.FOOT);
+        } else if (isTwoBlock(data)) {
+            org.bukkit.block.data.Bisected half = (org.bukkit.block.data.Bisected) data;
+            boolean bottom = half.getHalf() == org.bukkit.block.data.Bisected.Half.BOTTOM;
+            other = block.getRelative(bottom ? org.bukkit.block.BlockFace.UP : org.bukkit.block.BlockFace.DOWN);
+            ((org.bukkit.block.data.Bisected) otherData).setHalf(
+                    bottom ? org.bukkit.block.data.Bisected.Half.TOP : org.bukkit.block.data.Bisected.Half.BOTTOM);
+        } else {
+            return;
+        }
+        if (setByEdit.test(other)) return;
+        if (other.getY() < block.getWorld().getMinHeight() || other.getY() >= block.getWorld().getMaxHeight()) return;
+        other.setBlockData(otherData, false);
+    }
+
     private static void applyNBTData(BlockState blockState, JsonObject nbtData) {
         // Note: Bukkit doesn't provide direct NBT access in the same way as vanilla Minecraft
         // This is a simplified implementation that handles common cases using legacy Bukkit API
@@ -626,15 +688,21 @@ public class CommandHandler {
                 }
             }
 
-            // Determine which palette entries need Bukkit API (have block_state or nbt)
+            // Entries with block_state/nbt, block entities or two-block blocks go through
+            // the Bukkit API; everything else can be written straight into chunk sections.
             boolean[] paletteNeedsBukkit = new boolean[paletteSize];
-            boolean hasComplexEntries = false;
+            boolean[] paletteTwoBlock = new boolean[paletteSize];
+            boolean[] nmsSkip = new boolean[paletteSize];
             for (int i = 0; i < paletteSize; i++) {
-                if (paletteObjects[i] != null
-                        && (paletteObjects[i].has("block_state") || paletteObjects[i].has("nbt"))) {
-                    paletteNeedsBukkit[i] = true;
-                    hasComplexEntries = true;
+                if (paletteIsNull[i]) {
+                    nmsSkip[i] = true;
+                    continue;
                 }
+                paletteTwoBlock[i] = isTwoBlock(paletteMaterials[i].createBlockData());
+                paletteNeedsBukkit[i] = needsBukkitPlacement(paletteMaterials[i])
+                        || (paletteObjects[i] != null
+                            && (paletteObjects[i].has("block_state") || paletteObjects[i].has("nbt")));
+                nmsSkip[i] = paletteNeedsBukkit[i];
             }
 
             // Try NMS fast path for simple blocks
@@ -645,7 +713,7 @@ public class CommandHandler {
                     count = NMSBlockPlacer.placeBlocks(
                             world, startX, startY, startZ,
                             sizeX, sizeY, sizeZ,
-                            paletteMaterials, paletteObjects, paletteIsNull,
+                            paletteMaterials, paletteObjects, nmsSkip,
                             flatPaletteIndices);
                     nmsUsed = true;
                 } catch (Throwable e) {
@@ -653,79 +721,32 @@ public class CommandHandler {
                 }
             }
 
-            if (nmsUsed) {
-                // NMS handled simple blocks. Do a second pass for complex entries
-                // (block_state/nbt) using CommandHandler's Bukkit helpers.
-                if (hasComplexEntries) {
-                    for (int fi = 0; fi < totalBlocks; fi++) {
-                        int pi = flatPaletteIndices[fi];
-                        if (!paletteNeedsBukkit[pi]) continue;
-
-                        int dz = fi % sizeZ;
-                        int dy = (fi / sizeZ) % sizeY;
-                        int dx = fi / (sizeY * sizeZ);
-
-                        int worldX = startX + dx;
-                        int worldY = startY + dy;
-                        int worldZ = startZ + dz;
-
-                        Block block = world.getBlockAt(worldX, worldY, worldZ);
-                        // NMS already set the base type; apply state and NBT via Bukkit
-                        JsonObject blockData = paletteObjects[pi];
-
-                        if (blockData.has("block_state")) {
-                            JsonObject blockState = blockData.getAsJsonObject("block_state");
-                            BlockData bukkitBlockData = block.getBlockData();
-                            bukkitBlockData = applyBlockStates(bukkitBlockData, blockState);
-                            block.setBlockData(bukkitBlockData);
-                        }
-
-                        if (blockData.has("nbt")) {
-                            JsonObject nbtData = blockData.getAsJsonObject("nbt");
-                            BlockState blockState = block.getState();
-                            applyNBTData(blockState, nbtData);
-                            blockState.update(true);
-                        }
-                    }
-                }
-            } else {
-                // Full Bukkit API fallback
-                for (int fi = 0; fi < totalBlocks; fi++) {
-                    int pi = flatPaletteIndices[fi];
-
-                    if (paletteIsNull[pi]) continue;
-
-                    int dz = fi % sizeZ;
-                    int dy = (fi / sizeZ) % sizeY;
-                    int dx = fi / (sizeY * sizeZ);
-
-                    int worldX = startX + dx;
-                    int worldY = startY + dy;
-                    int worldZ = startZ + dz;
-
-                    Block block = world.getBlockAt(worldX, worldY, worldZ);
+            // Bukkit pass: everything the NMS pass skipped (or all blocks without NMS).
+            // No block updates, so the two halves of a door or bed can't break each other.
+            for (int fi = 0; fi < totalBlocks; fi++) {
+                int pi = flatPaletteIndices[fi];
+                if (paletteIsNull[pi] || (nmsUsed && !paletteNeedsBukkit[pi])) continue;
+                Block block = world.getBlockAt(
+                        startX + fi / (sizeY * sizeZ), startY + (fi / sizeZ) % sizeY, startZ + fi % sizeZ);
+                if (paletteNeedsBukkit[pi]) {
+                    placeWithBukkit(block, paletteMaterials[pi], paletteObjects[pi]);
+                } else {
                     block.setType(paletteMaterials[pi], false);
-
-                    if (paletteObjects[pi] != null) {
-                        JsonObject blockData = paletteObjects[pi];
-
-                        if (blockData.has("block_state")) {
-                            JsonObject blockState = blockData.getAsJsonObject("block_state");
-                            BlockData bukkitBlockData = block.getBlockData();
-                            bukkitBlockData = applyBlockStates(bukkitBlockData, blockState);
-                            block.setBlockData(bukkitBlockData);
-                        }
-
-                        if (blockData.has("nbt")) {
-                            JsonObject nbtData = blockData.getAsJsonObject("nbt");
-                            BlockState blockState = block.getState();
-                            applyNBTData(blockState, nbtData);
-                            blockState.update(true);
-                        }
-                    }
-
-                    count++;
                 }
+                count++;
+            }
+
+            // Add the missing half of doors, tall plants and beds the edit only gave one half of.
+            final int[] flat = flatPaletteIndices;
+            java.util.function.Predicate<Block> setByEdit = b -> {
+                int dx = b.getX() - startX, dy = b.getY() - startY, dz = b.getZ() - startZ;
+                if (dx < 0 || dy < 0 || dz < 0 || dx >= sizeX || dy >= sizeY || dz >= sizeZ) return false;
+                return !paletteIsNull[flat[dx * sizeY * sizeZ + dy * sizeZ + dz]];
+            };
+            for (int fi = 0; fi < totalBlocks; fi++) {
+                if (!paletteTwoBlock[flatPaletteIndices[fi]]) continue;
+                completeTwoBlock(world.getBlockAt(
+                        startX + fi / (sizeY * sizeZ), startY + (fi / sizeZ) % sizeY, startZ + fi % sizeZ), setByEdit);
             }
 
             return CommandResult.success(count);
@@ -744,6 +765,7 @@ public class CommandHandler {
         try {
             int count = 0;
             int sizeX = blocks.size();
+            List<Block> twoBlocks = new ArrayList<>();
 
             for (int dx = 0; dx < sizeX; dx++) {
                 JsonElement xElement = blocks.get(dx);
@@ -773,58 +795,51 @@ public class CommandHandler {
                         int worldZ = startZ + dz;
 
                         Block block = world.getBlockAt(worldX, worldY, worldZ);
+                        String where = "[" + dx + "][" + dy + "][" + dz + "]";
+                        String blockName;
+                        JsonObject entry = null;
 
                         if (blockElement.isJsonPrimitive() && blockElement.getAsJsonPrimitive().isString()) {
-                            String blockName = blockElement.getAsString();
-                            Material material = parseBlockMaterial(blockName);
-                            if (material == null) {
-                                return CommandResult.error("Invalid block type at [" + dx + "][" + dy + "][" + dz + "]: " + blockName);
-                            }
-                            block.setType(material, false);
-                            count++;
+                            blockName = blockElement.getAsString();
                         } else if (blockElement.isJsonObject()) {
-                            JsonObject blockDataObj = blockElement.getAsJsonObject();
-
-                            if (!blockDataObj.has("block")) {
-                                return CommandResult.error("Missing 'block' field at [" + dx + "][" + dy + "][" + dz + "]");
+                            entry = blockElement.getAsJsonObject();
+                            if (!entry.has("block")) {
+                                return CommandResult.error("Missing 'block' field at " + where);
                             }
-
-                            String blockName = blockDataObj.get("block").getAsString();
-                            Material material = parseBlockMaterial(blockName);
-                            if (material == null) {
-                                return CommandResult.error("Invalid block type at [" + dx + "][" + dy + "][" + dz + "]: " + blockName);
-                            }
-
-                            block.setType(material, false);
-
-                            if (blockDataObj.has("block_state")) {
-                                JsonObject blockState = blockDataObj.getAsJsonObject("block_state");
-                                BlockData bukkitBlockData = block.getBlockData();
-                                try {
-                                    bukkitBlockData = applyBlockStates(bukkitBlockData, blockState);
-                                } catch (Exception e) {
-                                    return CommandResult.error("Failed to set block state at [" + dx + "][" + dy + "][" + dz + "]: " + e.getMessage());
-                                }
-                                block.setBlockData(bukkitBlockData);
-                            }
-
-                            if (blockDataObj.has("nbt")) {
-                                JsonObject nbtData = blockDataObj.getAsJsonObject("nbt");
-                                BlockState blockState = block.getState();
-                                try {
-                                    applyNBTData(blockState, nbtData);
-                                    blockState.update(true);
-                                } catch (Exception e) {
-                                    return CommandResult.error("Failed to set NBT data at [" + dx + "][" + dy + "][" + dz + "]: " + e.getMessage());
-                                }
-                            }
-
-                            count++;
+                            blockName = entry.get("block").getAsString();
                         } else {
-                            return CommandResult.error("Invalid block element at [" + dx + "][" + dy + "][" + dz + "]: must be string or object");
+                            return CommandResult.error("Invalid block element at " + where + ": must be string or object");
                         }
+
+                        Material material = parseBlockMaterial(blockName);
+                        if (material == null) {
+                            return CommandResult.error("Invalid block type at " + where + ": " + blockName);
+                        }
+                        // No block updates, so the two halves of a door or bed can't break each other
+                        try {
+                            placeWithBukkit(block, material, entry);
+                        } catch (Exception e) {
+                            return CommandResult.error("Failed to place block at " + where + ": " + e.getMessage());
+                        }
+                        if (isTwoBlock(block.getBlockData())) {
+                            twoBlocks.add(block);
+                        }
+                        count++;
                     }
                 }
+            }
+
+            // Add the missing half of doors, tall plants and beds the edit only gave one half of.
+            java.util.function.Predicate<Block> setByEdit = b -> {
+                int dx = b.getX() - startX, dy = b.getY() - startY, dz = b.getZ() - startZ;
+                if (dx < 0 || dy < 0 || dz < 0 || dx >= blocks.size()) return false;
+                JsonArray ys = blocks.get(dx).getAsJsonArray();
+                if (dy >= ys.size()) return false;
+                JsonArray zs = ys.get(dy).getAsJsonArray();
+                return dz < zs.size() && !zs.get(dz).isJsonNull();
+            };
+            for (Block block : twoBlocks) {
+                completeTwoBlock(block, setByEdit);
             }
 
             return CommandResult.success(count);
@@ -1464,10 +1479,28 @@ public class CommandHandler {
         float pitch = params.get("pitch").getAsFloat();
 
         try {
-            Location loc = entity.getLocation();
-            loc.setYaw(yaw);
-            loc.setPitch(pitch);
-            entity.teleport(loc);
+            if (entity instanceof Player) {
+                // Players only see a rotation change through a teleport (Spigot also refuses
+                // setRotation on players). A riding player is taken off and put back on.
+                Entity vehicle = entity.getVehicle();
+                if (vehicle != null) {
+                    vehicle.removePassenger(entity);
+                }
+                Location loc = entity.getLocation();
+                loc.setYaw(yaw);
+                loc.setPitch(pitch);
+                boolean moved = entity.teleport(loc);
+                if (vehicle != null) {
+                    vehicle.addPassenger(entity);
+                }
+                if (!moved) {
+                    return CommandResult.error("Could not rotate player " + entity.getName()
+                            + ": the teleport was cancelled (carrying passengers, or blocked by a plugin)");
+                }
+            } else {
+                // Works for mounted entities and entities with passengers, unlike teleport
+                entity.setRotation(yaw, pitch);
+            }
             return CommandResult.success(true);
         } catch (Exception e) {
             return CommandResult.error("Failed to set entity rotation: " + e.getMessage());
@@ -2116,6 +2149,8 @@ public class CommandHandler {
                     } else {
                         player.setExp(Math.min(1.0f, Math.max(0.0f, (float) amount / player.getExpToLevel())));
                     }
+                    // setLevel/setExp don't touch the total-experience counter
+                    player.setTotalExperience(totalExperience(player));
                     break;
                 case "query":
                     // just return current values
@@ -2125,12 +2160,26 @@ public class CommandHandler {
             }
 
             result.put("level", player.getLevel());
-            result.put("points", player.getTotalExperience());
+            result.put("points", totalExperience(player));
             result.put("progress", player.getExp());
             return CommandResult.success(result);
         } catch (Exception e) {
             return CommandResult.error("Failed to modify experience: " + e.getMessage());
         }
+    }
+
+    /** XP needed to go from {@code level} to the next level (vanilla formula). */
+    private static int xpToNextLevel(int level) {
+        if (level >= 30) return 112 + (level - 30) * 9;
+        if (level >= 15) return 37 + (level - 15) * 5;
+        return 7 + level * 2;
+    }
+
+    /** Total XP points the player holds, from their level and progress bar. */
+    private static int totalExperience(Player player) {
+        int total = 0;
+        for (int l = 0; l < player.getLevel(); l++) total += xpToNextLevel(l);
+        return total + Math.round(player.getExp() * xpToNextLevel(player.getLevel()));
     }
 
     private static CommandResult handleDifficulty(JsonObject params) {

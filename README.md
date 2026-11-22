@@ -48,7 +48,7 @@ Let AI agents build in Minecraft for you:
 
 ### Server Setup
 
-1. Place `MCPyLib-Plugin-1.2.0.jar` in your server's `plugins` folder
+1. Place `MCPyLib-Plugin-1.2.1.jar` in your server's `plugins` folder
 2. Start or restart your Minecraft server
 3. The plugin generates an authentication token on first start and prints it in the server console. You can show it again at any time:
 
@@ -615,7 +615,7 @@ except CommandError as e:
 
 ## Project Information
 
-**Version:** 1.2.0
+**Version:** 1.2.1
 **Author:** treeleaves30760
 **PyPI:** https://pypi.org/project/mcpylib/
 **Repository:** https://github.com/treeleaves30760/MCPyLib

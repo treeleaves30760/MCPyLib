@@ -808,7 +808,8 @@ class MCPyLib:
         Raises:
             ConnectionError: If connection fails
             AuthenticationError: If authentication fails
-            CommandError: If entity not found
+            CommandError: If the entity is not found, or a player's rotation
+                was blocked (for example by another plugin)
 
         Example:
             >>> uuid = mc.summon("zombie", 100, 64, 200)
@@ -1164,8 +1165,12 @@ class MCPyLib:
                         "nbt": {"CustomName": "Storage"}  # Optional, same keys as setblock()
                     }
 
+                Doors, beds and tall plants can be given as one entry (the
+                lower half or the bed's foot); the other half is added
+                automatically unless the array sets that position itself.
+
         Returns:
-            Number of blocks placed (None entries are not counted)
+            Number of blocks placed (None entries and added halves are not counted)
 
         Raises:
             ConnectionError: If connection fails
@@ -1403,7 +1408,8 @@ class MCPyLib:
             target: Target type ("points" or "levels")
 
         Returns:
-            Dictionary with keys: level, points, progress
+            Dictionary with keys: level, points (total XP, from level and
+            progress), progress
 
         Raises:
             ConnectionError: If connection fails
@@ -1412,11 +1418,11 @@ class MCPyLib:
 
         Example:
             >>> mc.experience("Steve", "add", 100)
-            {'level': 3, 'points': 100, 'progress': 0.5}
+            {'level': 7, 'points': 100, 'progress': 0.43}
             >>> mc.experience("Steve", "set", 10, target="levels")
-            {'level': 10, 'points': 0, 'progress': 0.0}
+            {'level': 10, 'points': 172, 'progress': 0.43}
             >>> mc.experience("Steve", "query")
-            {'level': 10, 'points': 0, 'progress': 0.0}
+            {'level': 10, 'points': 172, 'progress': 0.43}
         """
         params = {
             "username": username,

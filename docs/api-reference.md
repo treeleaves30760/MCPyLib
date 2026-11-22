@@ -277,7 +277,14 @@ for x in range(size_x):
 mc.edit(100, 64, 200, blocks)  # 200
 ```
 
-**Note:** Plain blocks are written without block updates. Entries with `block_state` or `nbt` are applied in a second pass with block updates, in `x`, `y`, `z` order, so place two-block blocks such as doors and beds with `setblock()` instead (see [setblock()](#setblock)).
+**Note:** Blocks are written without block updates. Doors, beds and tall plants can be given as a single entry (the lower half, or the bed's foot): `edit()` adds the other half unless the array sets that position itself, replacing whatever is there. If you give both halves, any order works.
+
+```python
+# One entry each: a south-facing door (upper half added at y=65)
+# and a red bed (head added at z=204, the side the bed faces)
+mc.edit(100, 64, 200, [[[{"block": "oak_door", "block_state": {"facing": "south"}}]]])
+mc.edit(102, 64, 203, [[[{"block": "red_bed", "block_state": {"facing": "south"}}]]])
+```
 
 ---
 
@@ -1117,6 +1124,8 @@ Set an entity's rotation.
 - `pitch` (float): Vertical rotation (-90 = up, 0 = level, 90 = down)
 
 **Returns:** `bool` -- `True` if successful
+
+**Raises:** `CommandError` if the entity is not found, or if a player's rotation was blocked (for example by another plugin cancelling the teleport). Players riding a vehicle stay mounted.
 
 **Example:**
 ```python
