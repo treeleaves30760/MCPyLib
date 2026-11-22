@@ -36,7 +36,7 @@ Let AI agents build in Minecraft for you:
 
 - **[MCPyLib-mcp](https://github.com/treeleaves30760/MCPyLib-mcp)**: an MCP (Model Context Protocol) server, so Claude Code, Claude Desktop, Cursor, VS Code and other MCP clients can call MCPyLib as tools:
   ```bash
-  claude mcp add mcpylib -e MCPYLIB_TOKEN=<token> -- uvx --from git+https://github.com/treeleaves30760/MCPyLib-mcp mcpylib-mcp
+  claude mcp add mcpylib -e MCPYLIB_TOKEN=<token> -- uvx mcpylib-mcp
   ```
 - **[MCPyLib-skills](https://github.com/treeleaves30760/MCPyLib-skills)**: Agent Skills that teach AI coding agents the MCPyLib API, building recipes and mini-game patterns:
   ```
