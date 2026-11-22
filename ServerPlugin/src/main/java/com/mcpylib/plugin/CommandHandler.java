@@ -288,71 +288,53 @@ public class CommandHandler {
         } catch (IllegalArgumentException ignored) {
             // fall through to the Bukkit-enum aliases below (e.g. rotation=NORTH)
         }
-        switch (property.toLowerCase()) {
-            case "facing":
-                if (blockData instanceof Directional) {
-                    Directional directional = (Directional) blockData;
-                    directional.setFacing(org.bukkit.block.BlockFace.valueOf(value.toUpperCase()));
-                }
-                break;
-
-            case "rotation":
-                if (blockData instanceof Rotatable) {
-                    Rotatable rotatable = (Rotatable) blockData;
-                    rotatable.setRotation(org.bukkit.block.BlockFace.valueOf(value.toUpperCase()));
-                }
-                break;
-
-            case "axis":
-                if (blockData instanceof Orientable) {
-                    Orientable orientable = (Orientable) blockData;
-                    orientable.setAxis(org.bukkit.Axis.valueOf(value.toUpperCase()));
-                }
-                break;
-
-            case "half":
-                if (blockData instanceof Stairs) {
-                    Stairs stairs = (Stairs) blockData;
-                    stairs.setHalf(Stairs.Half.valueOf(value.toUpperCase()));
-                } else if (blockData instanceof org.bukkit.block.data.Bisected) {
-                    org.bukkit.block.data.Bisected bisected = (org.bukkit.block.data.Bisected) blockData;
-                    bisected.setHalf(org.bukkit.block.data.Bisected.Half.valueOf(value.toUpperCase()));
-                }
-                break;
-
-            case "shape":
-                if (blockData instanceof Stairs) {
-                    Stairs stairs = (Stairs) blockData;
-                    stairs.setShape(Stairs.Shape.valueOf(value.toUpperCase()));
-                }
-                break;
-
-            case "waterlogged":
-                if (blockData instanceof org.bukkit.block.data.Waterlogged) {
-                    org.bukkit.block.data.Waterlogged waterlogged = (org.bukkit.block.data.Waterlogged) blockData;
-                    waterlogged.setWaterlogged(Boolean.parseBoolean(value));
-                }
-                break;
-
-            case "open":
-                if (blockData instanceof org.bukkit.block.data.Openable) {
-                    org.bukkit.block.data.Openable openable = (org.bukkit.block.data.Openable) blockData;
-                    openable.setOpen(Boolean.parseBoolean(value));
-                }
-                break;
-
-            case "powered":
-                if (blockData instanceof org.bukkit.block.data.Powerable) {
-                    org.bukkit.block.data.Powerable powerable = (org.bukkit.block.data.Powerable) blockData;
-                    powerable.setPowered(Boolean.parseBoolean(value));
-                }
-                break;
-
-            default:
-                throw new IllegalArgumentException("Unsupported property '" + property + "=" + value
-                        + "' for " + blockData.getMaterial().getKey());
+        String upper = value.toUpperCase(java.util.Locale.ROOT);
+        try {
+            switch (property.toLowerCase(java.util.Locale.ROOT)) {
+                case "facing":
+                    if (blockData instanceof Directional directional) {
+                        directional.setFacing(org.bukkit.block.BlockFace.valueOf(upper));
+                        return blockData;
+                    }
+                    break;
+                case "rotation":
+                    if (blockData instanceof Rotatable rotatable) {
+                        rotatable.setRotation(org.bukkit.block.BlockFace.valueOf(upper));
+                        return blockData;
+                    }
+                    break;
+                case "axis":
+                    if (blockData instanceof Orientable orientable) {
+                        orientable.setAxis(org.bukkit.Axis.valueOf(upper));
+                        return blockData;
+                    }
+                    break;
+                case "half":
+                    if (blockData instanceof Stairs stairs) {
+                        stairs.setHalf(Stairs.Half.valueOf(upper));
+                        return blockData;
+                    } else if (blockData instanceof org.bukkit.block.data.Bisected bisected) {
+                        bisected.setHalf(org.bukkit.block.data.Bisected.Half.valueOf(upper));
+                        return blockData;
+                    }
+                    break;
+                case "shape":
+                    if (blockData instanceof Stairs stairs) {
+                        stairs.setShape(Stairs.Shape.valueOf(upper));
+                        return blockData;
+                    }
+                    break;
+                default:
+                    // waterlogged, open, powered and every other vanilla property are
+                    // handled by the vanilla state syntax above; reaching here means
+                    // the block lacks the property or the value is invalid.
+                    break;
+            }
+        } catch (IllegalArgumentException badEnumValue) {
+            // e.g. facing=sideways: report it like any other unsupported value
         }
-        return blockData;
+        throw new IllegalArgumentException("Unsupported property '" + property + "=" + value
+                + "' for " + blockData.getMaterial().getKey());
     }
 
     @SuppressWarnings("deprecation")
@@ -658,7 +640,7 @@ public class CommandHandler {
                 } else if (elem.isJsonPrimitive() && elem.getAsJsonPrimitive().isString()) {
                     Material mat = parseBlockMaterial(elem.getAsString());
                     if (mat == null) {
-                        return CommandResult.error("Invalid block type in palette[" + i + "]: " + elem.getAsString());
+                        return CommandResult.error("Invalid block type in palette[" + i + "]: " + elem.getAsString() + itemHint(elem.getAsString()));
                     }
                     paletteMaterials[i] = mat;
                 } else if (elem.isJsonObject()) {
@@ -668,7 +650,15 @@ public class CommandHandler {
                     }
                     Material mat = parseBlockMaterial(obj.get("block").getAsString());
                     if (mat == null) {
-                        return CommandResult.error("Invalid block type in palette[" + i + "]: " + obj.get("block").getAsString());
+                        return CommandResult.error("Invalid block type in palette[" + i + "]: " + obj.get("block").getAsString() + itemHint(obj.get("block").getAsString()));
+                    }
+                    if (obj.has("block_state")) {
+                        // Check states up front so a bad one fails before anything is placed.
+                        try {
+                            applyBlockStates(mat.createBlockData(), obj.getAsJsonObject("block_state"));
+                        } catch (Exception e) {
+                            return CommandResult.error("Invalid block_state in palette[" + i + "]: " + e.getMessage());
+                        }
                     }
                     paletteMaterials[i] = mat;
                     paletteObjects[i] = obj;
@@ -813,7 +803,7 @@ public class CommandHandler {
 
                         Material material = parseBlockMaterial(blockName);
                         if (material == null) {
-                            return CommandResult.error("Invalid block type at " + where + ": " + blockName);
+                            return CommandResult.error("Invalid block type at " + where + ": " + blockName + itemHint(blockName));
                         }
                         // No block updates, so the two halves of a door or bed can't break each other
                         try {

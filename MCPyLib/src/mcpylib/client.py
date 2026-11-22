@@ -242,7 +242,8 @@ class MCPyLib:
             z: Z coordinate
             block_name: Block type (e.g., "minecraft:stone")
             block_state: Optional block state properties (e.g., {"facing": "north", "half": "bottom"}).
-                Any vanilla property of the block is accepted.
+                Any vanilla property of the block is accepted; a property the block
+                doesn't have raises CommandError.
             nbt: Optional block entity data. Only two keys are applied: "CustomName"
                 (plain text, for containers such as chests) and "Text1"-"Text4"
                 (sign lines). Other keys are ignored.

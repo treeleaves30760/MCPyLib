@@ -67,7 +67,7 @@ Place a block at the specified coordinates.
 - `y` (int): Y coordinate (vertical)
 - `z` (int): Z coordinate
 - `block_name` (str): Block type (e.g., `"minecraft:stone"` or `"stone"`). Item ids that are not placeable blocks (such as `"brick"`) are rejected.
-- `block_state` (dict, optional): Block state properties, e.g. `{"facing": "north", "half": "top"}`. Every vanilla property works (`type`, `rotation`, `part`, `power`, `axis`, `waterlogged`, ...). Values may be strings, numbers or booleans. An unknown property raises `CommandError`.
+- `block_state` (dict, optional): Block state properties, e.g. `{"facing": "north", "half": "top"}`. Every vanilla property works (`type`, `rotation`, `part`, `power`, `axis`, `waterlogged`, ...). Values may be strings, numbers or booleans. A property the block doesn't have, or an invalid value, raises `CommandError`.
 - `nbt` (dict, optional): Block entity data. Only two kinds of keys are applied:
   - `"CustomName"`: plain-text name for containers (chest, barrel, furnace, ...)
   - `"Text1"` to `"Text4"`: the front lines of a sign

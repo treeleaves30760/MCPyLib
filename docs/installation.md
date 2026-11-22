@@ -21,7 +21,7 @@ For Minecraft 1.21.x servers, keep using plugin 1.1.x.
 
 #### Method 1: Using Pre-compiled JAR File
 
-1. Download `MCPyLib-Plugin-1.2.1.jar` from the Releases page
+1. Download `MCPyLib-Plugin-1.2.2.jar` from the Releases page
 2. Copy the JAR file to your Minecraft server's `plugins` folder
 3. Start or restart the Minecraft server
 
@@ -32,11 +32,11 @@ cd ServerPlugin
 ./mvnw clean package   # Windows: mvnw.cmd clean package
 ```
 
-After compilation, the JAR file will be at `ServerPlugin/target/MCPyLib-Plugin-1.2.1.jar`
+After compilation, the JAR file will be at `ServerPlugin/target/MCPyLib-Plugin-1.2.2.jar`
 
 Copy it to the server's `plugins` folder:
 ```bash
-cp target/MCPyLib-Plugin-1.2.1.jar /path/to/minecraft/server/plugins/
+cp target/MCPyLib-Plugin-1.2.2.jar /path/to/minecraft/server/plugins/
 ```
 
 ### Step 2: Start Server and Get Token
@@ -264,7 +264,7 @@ If you need to connect from other computers:
 4. Start the server
 5. Token and configuration files will be automatically preserved (settings added in newer versions, such as `idle-timeout-seconds`, use their defaults until you add them to your `config.yml`)
 
-Plugin 1.2.1 requires Paper or Spigot 26.1+ on Java 25; stay on 1.1.x for 1.21.x servers.
+Plugin 1.2.2 requires Paper or Spigot 26.1+ on Java 25; stay on 1.1.x for 1.21.x servers.
 
 ### Upgrade Python Package
 

@@ -1,5 +1,6 @@
-"""Live regression test for three fixes: two-block blocks in edit(),
-setEntityRotation error reporting, and experience points after "set".
+"""Live regression test for the 1.2.1 and 1.2.2 fixes: two-block blocks in edit(),
+setEntityRotation error reporting, experience points after "set", alias
+properties on blocks without them, and the item hint in edit() errors.
 
 Usage: uv run python ServerPlugin/scripts/live_fix_test.py <token> <server.log> [player]
 A player must be online for the experience and player-rotation checks
@@ -93,6 +94,34 @@ mc._send_command("bulkEdit", {"x": X, "y": Y, "z": Z + 11,
 check("edit legacy: door + bed completed",
       state_is(X, Y + 1, Z + 11, "minecraft:iron_door[half=upper,facing=west]")
       and state_is(X + 1, Y, Z + 10, "minecraft:white_bed[part=head]"))
+
+# 1.2.2: legacy alias keys on a block without that property are rejected.
+def error_of(fn):
+    try:
+        fn()
+    except CommandError as e:
+        return str(e)
+    return ""
+
+for key, value in (("facing", "north"), ("waterlogged", "true"), ("axis", "y")):
+    err = error_of(lambda: mc.setblock(X, Y + 3, Z, "minecraft:stone", block_state={key: value}))
+    check(f"setblock: stone + {key} rejected", "Unsupported property" in err, err)
+err = error_of(lambda: mc.setblock(X, Y + 3, Z, "minecraft:oak_stairs", block_state={"facing": "sideways"}))
+check("setblock: bad alias value rejected", "Unsupported property" in err, err)
+mc.setblock(X, Y + 3, Z, "minecraft:oak_log", block_state={"axis": "x"})
+check("setblock: valid alias still works", state_is(X, Y + 3, Z, "minecraft:oak_log[axis=x]"))
+mc.setblock(X + 1, Y + 3, Z, "minecraft:air")
+err = error_of(lambda: mc.edit(X + 1, Y + 3, Z, [[[{"block": "stone", "block_state": {"facing": "east"}}]]]))
+check("edit: stone + facing rejected", "Unsupported property" in err, err)
+check("edit: nothing placed on bad state", "air" in str(mc.getblock(X + 1, Y + 3, Z)))
+
+# 1.2.2: edit() names item ids that aren't blocks.
+err = error_of(lambda: mc.edit(X, Y + 3, Z, [[["minecraft:brick"]]]))
+check("edit: item hint (palette string)", "item, not a placeable block" in err, err)
+err = error_of(lambda: mc.edit(X, Y + 3, Z, [[[{"block": "diamond"}]]]))
+check("edit: item hint (palette object)", "item, not a placeable block" in err, err)
+err = error_of(lambda: mc._send_command("bulkEdit", {"x": X, "y": Y + 3, "z": Z, "blocks": [[["stick"]]]}))
+check("edit legacy: item hint", "item, not a placeable block" in err, err)
 
 # ---------------------------------------------------------------- setEntityRotation
 zombie = mc.summon("zombie", X + 10, Y, Z + 10)

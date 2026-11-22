@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2.2 (2026-11-23)
+
+### Fixed
+- A `block_state` property the block doesn't have now raises `CommandError`
+  ("Unsupported property ...") for every key. The old alias keys `facing`,
+  `rotation`, `axis`, `half`, `shape`, `waterlogged`, `open` and `powered` used
+  to be ignored silently on such blocks, e.g. `facing` on stone.
+- `edit()` checks every palette `block_state` before placing anything, so a bad
+  state no longer leaves a half-finished edit.
+- `edit()` errors for item ids (e.g. `"brick"`) now say "this is an item, not a
+  placeable block", as `setblock()` and `fill()` already did. The 1.2.0 notes
+  claimed this for `edit()` too; it only worked for the other two.
+
+### Changed
+- `live_fix_test.py` covers these cases (32 checks).
+
+Tested live on Paper 26.3 and Spigot 26.3 (live_smoke_test.py 65/65, live_fix_test.py 32/32 on both).
+
 ## 1.2.1 (2026-11-22)
 
 ### Fixed
